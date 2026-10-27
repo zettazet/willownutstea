@@ -41,9 +41,9 @@ pub unsafe fn choose(window: HWND) -> anyhow::Result<Option<Vec<u8>>> {
 }
 /// Paint cached square 40px thumbnails directly; no persistent GDI bitmap per avatar.
 pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cache: &Cache) {
-    SetDCBrushColor(hdc, 0x00202020);
+    SetDCBrushColor(hdc, crate::theme::BACKGROUND);
     FillRect(hdc, &rect, GetStockObject(DC_BRUSH) as HBRUSH);
-    SetTextColor(hdc, 0x00dedede);
+    SetTextColor(hdc, crate::theme::TEXT);
     SetBkMode(hdc, TRANSPARENT as i32);
     let Some(call) = call else {
         return;
@@ -94,7 +94,7 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
                 SRCCOPY,
             );
         } else {
-            SetDCBrushColor(hdc, 0x00785488);
+            SetDCBrushColor(hdc, crate::theme::SURFACE);
             let old = SelectObject(hdc, GetStockObject(DC_BRUSH));
             Rectangle(hdc, x, y, x + size, y + size);
             SelectObject(hdc, old);

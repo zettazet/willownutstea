@@ -193,6 +193,8 @@ pub mod device {
         pub failed: Arc<AtomicBool>,
         pub input_gain: Arc<AtomicU32>,
         pub cleanup: Arc<AtomicBool>,
+        pub neural: Arc<AtomicBool>,
+        pub threshold: Arc<AtomicU32>,
     }
     fn preflight() -> anyhow::Result<()> {
         // CPAL 0.16 unwraps COM activation internally. Check it first so a missing
@@ -279,6 +281,15 @@ pub mod device {
             let gain = input_gain.clone();
             let cleanup = Arc::new(AtomicBool::new(preferences.voice_cleanup));
             let cleanup_enabled = cleanup.clone();
+            let neural = Arc::new(AtomicBool::new(preferences.neural_cleanup));
+            let neural_enabled = neural.clone();
+            let threshold = Arc::new(AtomicU32::new(
+                10f32
+                    .powf(preferences.noise_threshold_db.clamp(-60, -20) as f32 / 20.)
+                    .to_bits(),
+            ));
+            let threshold_value = threshold.clone();
+            let mut cleaner = crate::noise_cleaner::NoiseCleaner::new();
             let mut filter = crate::voice_filter::VoiceFilter::new();
             let mut was_muted = false;
             let mut frame = [0f32; FRAME];
@@ -291,6 +302,8 @@ pub mod device {
                 if m.load(Ordering::Relaxed) {
                     if !was_muted {
                         filter.reset();
+                        cleaner.reset();
+                        frame.fill(0.);
                         previous = 0.;
                         was_muted = true;
                     }
@@ -303,15 +316,22 @@ pub mod device {
                 while phase >= rate as u64 {
                     phase -= rate as u64;
                     let blend = phase as f32 / 48000.;
-                    frame[used] = apply_gain(
-                        filter.sample(
-                            value * (1. - blend) + previous * blend,
-                            cleanup_enabled.load(Ordering::Relaxed),
-                        ),
-                        gain.load(Ordering::Relaxed),
+                    filter.set_threshold(f32::from_bits(threshold_value.load(Ordering::Relaxed)));
+                    frame[used] = filter.sample(
+                        value * (1. - blend) + previous * blend,
+                        cleanup_enabled.load(Ordering::Relaxed),
                     );
                     used += 1;
                     if used == FRAME {
+                        cleaner.process(
+                            &mut frame,
+                            cleanup_enabled.load(Ordering::Relaxed)
+                                && neural_enabled.load(Ordering::Relaxed),
+                        );
+                        let input_percent = gain.load(Ordering::Relaxed);
+                        for sample in &mut frame {
+                            *sample = apply_gain(*sample, input_percent);
+                        }
                         if let Ok(n) = enc.encode_float(&frame, &mut packet) {
                             let _ = tx.try_send(AudioPacket {
                                 bytes: packet,
@@ -410,6 +430,8 @@ pub mod device {
                 failed,
                 input_gain,
                 cleanup,
+                neural,
+                threshold,
             })
         }
     }

@@ -10,6 +10,10 @@ mod message_input;
 #[cfg(windows)]
 mod profile_ui;
 #[cfg(windows)]
+mod sounds;
+#[cfg(windows)]
+mod theme;
+#[cfg(windows)]
 mod tray;
 #[cfg(windows)]
 use mini_client::network;

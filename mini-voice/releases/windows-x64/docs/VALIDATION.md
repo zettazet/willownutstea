@@ -208,3 +208,41 @@ No physical microphone listening test or native Windows CPU/RAM benchmark was
 available. Synthetic frequency-response checks do not establish subjective voice
 quality, echo cancellation or separation of loud noise from speech. Server and
 wire formats are unchanged for this client-only update.
+
+## Warm UI, Insert, chimes and RNNoise update
+
+The native client retains GDI/Win32 controls, one shared font and no new renderer
+or audio worker thread. Rounded buttons preserve native click/keyboard handling
+and paint focus/pressed/disabled states. The expanded Audio / Profile panel and
+chat layout were visually inspected under Wine/Xvfb; native Windows DPI, contrast
+and assistive-technology behavior still need a real Windows acceptance check.
+
+The isolated release allocator test measured **54,660 bytes of retained heap** for
+one denoiser and its initialized FFT cache on Linux x64, plus the wrapper's two
+480-sample arrays (3,840 bytes, not counted as heap when stack-resident) and the
+read-only embedded model/code. It counted **zero allocations for 100 steady 20ms
+frames**. Those two seconds of synthetic audio took about **27ms** on this Linux
+runner. These are component measurements, not total application RAM/CPU or a
+native Windows performance guarantee. State resets on mute/bypass allocate; the
+FFT library initializes per-thread caches on first use. Model weights remain
+read-only; one state is retained per active microphone, not per participant.
+
+The synthetic noise case reports an output/input RMS ratio around **0.845** for
+broadband noise; this verifies reduction, not perceived voice quality. Other
+tests check finite output, exact neural bypass, silence, clearing waveform
+history after mute, adjustable threshold response and preservation of louder
+speech by the basic expander. The Linux workspace has 22 passing Rust tests,
+including existing eight-client TLS/UDP/reconnect and avatar coverage.
+
+Windows EXE smoke under Wine checks global Insert ownership, old-settings
+migration, RNNoise/sounds defaults, threshold saving/restoration, standalone
+TLS startup, panel visibility, tray hide/restore and clean exit. Clippy with
+warnings denied covers Linux workspace and Windows client targets. The three
+embedded 220ms WAVs are original low-level sine chimes (21,252 bytes combined).
+WinMM plays a single asynchronous cue at a time; application code queues no
+sounds. No physical listening test was available: confirm comfortable volume,
+real global-key delivery in your foreground app, mic cleanup/latency and device
+selection on Windows. The known Wine DPAPI limitation above still applies.
+
+Server, call protocol, persistent database and server release binaries are
+unchanged. Existing avatar-capable servers need only updated clients.

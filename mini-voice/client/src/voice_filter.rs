@@ -42,6 +42,7 @@ pub struct VoiceFilter {
     envelope: f32,
     gain: f32,
     enabled: bool,
+    threshold: f32,
     envelope_attack: f32,
     envelope_release: f32,
     gain_attack: f32,
@@ -61,11 +62,19 @@ impl VoiceFilter {
             envelope: 0.,
             gain: 0.1,
             enabled: true,
+            threshold: 0.0015,
             envelope_attack: coefficient(0.002),
             envelope_release: coefficient(0.08),
             gain_attack: coefficient(0.002),
             gain_release: coefficient(0.12),
         }
+    }
+    pub fn set_threshold(&mut self, amplitude: f32) {
+        self.threshold = if amplitude.is_finite() {
+            amplitude.clamp(0.001, 0.1)
+        } else {
+            0.003162278
+        };
     }
     pub fn reset(&mut self) {
         self.high.z = [0.; 2];
@@ -96,9 +105,9 @@ impl VoiceFilter {
         if self.envelope < 1e-20 {
             self.envelope = 0.;
         }
-        // Downward expansion below about -56 dBFS; no hard on/off speech gate.
+        // Adjustable downward expansion; no hard on/off speech gate.
         // Never raise the noise floor or silence quiet syllables completely.
-        let ratio = (self.envelope / 0.0015).min(1.);
+        let ratio = (self.envelope / self.threshold).min(1.);
         let target = 0.1 + 0.9 * ratio * ratio;
         let speed = if target > self.gain {
             self.gain_attack
@@ -136,6 +145,26 @@ mod tests {
         assert!(response(1000., 0.0001) < 0.00002);
         // A soft voice above the expander threshold keeps its level.
         assert!(response(1000., 0.01) > 0.0065);
+    }
+    #[test]
+    fn threshold_adjustment_suppresses_quiet_input_and_keeps_loud_speech() {
+        fn power(db: f32, amp: f32) -> f32 {
+            let mut filter = VoiceFilter::new();
+            filter.set_threshold(10f32.powf(db / 20.));
+            let mut sum = 0.;
+            for i in 0..48_000 {
+                let y = filter.sample(
+                    amp * (i as f32 * std::f32::consts::TAU * 1000. / RATE).sin(),
+                    true,
+                );
+                if i >= 24_000 {
+                    sum += y * y;
+                }
+            }
+            sum
+        }
+        assert!(power(-30., 0.005) < power(-60., 0.005) * 0.1);
+        assert!((power(-30., 0.2) / power(-60., 0.2) - 1.).abs() < 0.01);
     }
     #[test]
     fn bypass_mute_reset_and_long_silence_are_safe() {

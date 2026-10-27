@@ -107,20 +107,51 @@ claimed from a Linux/Wine build environment.
 
 ## Voice cleanup and square avatars
 
-Voice cleanup in Audio / Profile is ON by default and saved locally. It changes
-your outgoing microphone audio before the microphone gain, limiter and Opus
-encoding. An 80 Hz high-pass reduces rumble; an 8 kHz low-pass softens hiss;
-a gentle downward expander lowers very quiet background noise. Smoothed gain
-changes preserve speech transitions. There is no upward automatic gain, hard
-speech gate, look-ahead buffer, added audio thread or new library dependency.
-The filter uses less than 128 bytes of fixed state. Changes apply during calls;
-mute clears the filter state. Turn it OFF if you prefer the original mic sound.
+The cocoa/peach UI uses native Win32 controls, one shared Segoe UI font and
+GDI-painted rounded buttons. There is no web renderer, animation timer or image
+background. Section headings separate friends, conversations and the message area.
 
-This is lightweight signal filtering, not echo cancellation or AI separation.
-It cannot remove loud keyboard noise or another voice while you are speaking.
-Use headphones and keep the microphone close to improve the source signal.
-Everyone updating their client cleans their own outgoing microphone signal;
-your local playback volume controls continue to work independently.
+**Insert** toggles microphone mute during a call, including while hidden in the
+tray or while another app has focus. Holding the key does not repeatedly toggle.
+The shortcut is global while this client runs. If another application owns Insert,
+a status message explains the conflict; the mic button and an in-window Insert
+fallback remain available. Outside calls the key does nothing in Mini Voice.
+
+**Soft sounds** (Audio / Profile, ON by default) plays the same quiet 220ms chime
+when you join/leave a call, a participant joins/leaves your current call, or the
+connection to your active call drops. Mute has a descending tone; unmute has an
+ascending tone. No ringing or repeated alarm. New sounds replace the previous
+sound instead of stacking. Sounds are local, not transmitted to the call, and
+use the default Windows playback device/session volume, independently of the
+selected call output and Output slider. Headphones prevent acoustic mic pickup.
+Deafen suppresses new sounds. Disabling Soft sounds stops the current sound.
+The three original PCM cues total about 21 KiB embedded; no application sound
+thread or sound queue is created.
+
+**Voice cleanup** defaults ON and affects only your outgoing microphone before
+the mic gain, limiter and Opus encoder. It combines 80Hz high-pass / 8kHz low-pass
+filtering, smooth downward expansion and an **RNNoise cleaner** (also ON by
+default). RNNoise uses the embedded `nnnoiseless` model; no download, network
+service or extra audio thread. It processes 10ms mono 48kHz blocks within the
+existing 20ms encoder frame, with approximately 10ms algorithmic delay. State is
+created for an active call and dropped with its audio streams. Steady processing
+reuses its buffers and FFT cache; mute/bypass transitions recreate the small
+recurrent state to clear captured audio. The FFT library keeps a small per-thread
+cache until that audio thread exits. RNNoise costs additional CPU; turn off just
+RNNoise cleaner to keep the basic filters, or turn off Voice cleanup to bypass
+both. Changes apply live and settings persist.
+
+**Threshold** ranges from **−60 to −20 dBFS**, default **−50**. Start at −50, speak
+normally, then move toward −40/−30 if room noise still leaks between words. Moving
+toward −60 preserves softer speech. Excessively high thresholds can suppress
+quiet syllables. This is a smooth expander, not a hard voice-activation switch;
+it lowers quiet input rather than stopping network packets. RNNoise reduces
+background noise but cannot guarantee removing every keystroke or competing
+voice. Neither mode is echo cancellation; use headphones.
+
+Each person must update their own client to clean their microphone. Your local
+playback volume controls continue to work independently. No server update needed
+for this theme, shortcut, sounds or microphone update.
 
 Call avatars are now 40×40 squares (25% larger per side), including the initials
 placeholder. The call area gains 16 pixels for two rows of four participants;

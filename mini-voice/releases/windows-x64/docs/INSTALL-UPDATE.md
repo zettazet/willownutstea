@@ -5,7 +5,7 @@ Mini Voice has two parts: **one Linux server on your Oracle VM**, and a
 The Windows ZIP also contains `mini-server.exe`; the Oracle VM uses the Linux
 binary selected automatically by the installer.
 
-For the Voice cleanup / 40px avatar update, an existing avatar-capable server
+For the warm UI / Insert shortcut / RNNoise / 40px avatar update, an existing avatar-capable server
 needs no update: follow **C–E**. When upgrading a server from before avatar
 support, follow **A**, then **C–E**. Follow **B** only for a
 fresh server installation. All examples require replacing the domain, email, IP
@@ -282,9 +282,19 @@ sliders appear during calls and are saved by server/user ID. Device selectors
 include Default Windows Device. Changing devices may produce a brief gap; close
 and reopen the panel to refresh the device list after plugging in hardware.
 
-**Voice cleanup:** the Audio / Profile toggle defaults ON. It reduces microphone
-rumble, high hiss and very quiet background noise before encoding. Turn it OFF
-for the original sound; the choice is saved. This is not echo cancellation.
+**Voice cleanup:** defaults ON, with an RNNoise cleaner for background noise.
+Audio / Profile → Threshold defaults to −50 dBFS; move toward −30 to suppress
+more background noise, or toward −60 if quiet speech is cut. Changes apply live.
+Turn off RNNoise cleaner to reduce CPU while keeping basic filters; Voice cleanup
+OFF bypasses both. These settings are saved. Use headphones; this is not echo
+cancellation. Everyone updates their own client to clean their own microphone.
+
+**Insert:** mute/unmute during a call, also from the tray or another application.
+If another app has reserved Insert, the status line reports it; use the mic button.
+Holding Insert does not repeatedly toggle. Soft sounds in Audio / Profile controls
+the short call join/leave/participant chime and distinct mute/unmute tones. These
+play on the default Windows output, with Windows session volume (not the call
+Output slider). They are suppressed while deafened. Sounds default ON and persist.
 
 **Avatars:** sign in, then Upload avatar. Use PNG/JPEG/WebP up to 5 MiB, at most
 4096 pixels on either side and at most 4 megapixels total. The server stores an
@@ -299,6 +309,14 @@ reopen it; use Exit app to stop it fully. This is not Windows autostart. The
 client must remain running, and a sleeping/offline PC cannot participate in calls.
 
 ## E. Confirm everything works
+
+For the latest client, also verify Insert toggles mute once per press while the
+window is open and while in the tray. Listen for the soft call chime when joining,
+leaving and when a friend joins, and descending/ascending mic tones. Disable Soft
+sounds and confirm silence. In a quiet call, try RNNoise ON/OFF and adjust the
+threshold while speaking softly; lower it if syllables disappear. Restart the
+client to confirm your choices persist. Check the expanded panel at the smallest
+window size and with your Windows display scaling.
 
 Use two different PCs/accounts, preferably on different internet connections:
 

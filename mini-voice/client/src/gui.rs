@@ -13,7 +13,9 @@ use std::{
         Arc, Mutex,
     },
 };
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    EnableWindow, RegisterHotKey, SetFocus, UnregisterHotKey, MOD_NOREPEAT, VK_INSERT,
+};
 use windows_sys::Win32::{
     Foundation::*,
     Graphics::Gdi::*,
@@ -62,6 +64,11 @@ const MASTER_LABEL: i32 = 159;
 const GAIN_BASE: i32 = 170;
 const LABEL_BASE: i32 = 180;
 const VOICE_CLEANUP: i32 = 160;
+const NEURAL: i32 = 161;
+const SOUNDS: i32 = 162;
+const THRESHOLD: i32 = 163;
+const THRESHOLD_LABEL: i32 = 164;
+const INSERT_HOTKEY: i32 = 1;
 const MIXER_CHANGE: u32 = WM_APP + 11;
 fn w(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -78,6 +85,8 @@ unsafe fn text(h: HWND) -> String {
 struct App {
     window: HWND,
     tray: crate::tray::Tray,
+    theme: crate::theme::Theme,
+    hotkey: bool,
     rt: tokio::runtime::Runtime,
     bridge: Option<Bridge>,
     events: Receiver<UiEvent>,
@@ -151,13 +160,24 @@ impl App {
     }
     unsafe fn create(&mut self) {
         let h = self.window;
-        let font = GetStockObject(DEFAULT_GUI_FONT) as usize;
+        let font = if self.theme.font.is_null() {
+            GetStockObject(DEFAULT_GUI_FONT)
+        } else {
+            self.theme.font
+        } as usize;
         let make = |class: &str, label: &str, id: i32, style: u32| {
             let c = CreateWindowExW(
                 0,
                 w(class).as_ptr(),
                 w(label).as_ptr(),
-                WS_CHILD | WS_VISIBLE | style,
+                WS_CHILD
+                    | WS_VISIBLE
+                    | style
+                    | if class == "BUTTON" && style & BS_AUTOCHECKBOX as u32 == 0 {
+                        BS_OWNERDRAW as u32
+                    } else {
+                        0
+                    },
                 0,
                 0,
                 0,
@@ -174,6 +194,7 @@ impl App {
                 ));
             }
             SendMessageW(c, WM_SETFONT, font, 1);
+            SetWindowTheme(c, w("").as_ptr(), w("").as_ptr());
             c
         };
         make(
@@ -207,7 +228,7 @@ impl App {
             (CALL, "Call"),
             (JOIN, "Accept call"),
             (DECLINE, "Decline"),
-            (MIC, "Mute mic"),
+            (MIC, "Mute [Ins]"),
             (DEAF, "Deafen"),
             (LEAVE, "Leave"),
             (EXIT_APP, "Exit app"),
@@ -255,11 +276,14 @@ impl App {
         make("STATIC", "", PEOPLE, 0x0000000d /* SS_OWNERDRAW */);
         make(
             "STATIC",
-            "Server: wss://host:4433   |   Username   |   Password (10+ characters)",
+            "Connect with server URL, username and password (10+ characters)",
             STATUS,
             0,
         );
         make("BUTTON", "Audio / Profile", PANEL, WS_TABSTOP);
+        make("STATIC", "FRIENDS / REQUESTS", 190, 0);
+        make("STATIC", "CONVERSATIONS", 191, 0);
+        make("STATIC", "MINI VOICE  /  a place to talk", 192, 0);
         for id in [INPUT_DEVICE, OUTPUT_DEVICE] {
             make(
                 "COMBOBOX",
@@ -271,6 +295,8 @@ impl App {
         for (id, label) in [
             (AVATARS, "Show Avatars"),
             (VOICE_CLEANUP, "Voice cleanup"),
+            (NEURAL, "RNNoise cleaner"),
+            (SOUNDS, "Soft sounds"),
             (UPLOAD, "Upload avatar"),
             (REMOVE_AVATAR, "Remove avatar"),
         ] {
@@ -279,7 +305,7 @@ impl App {
                 label,
                 id,
                 WS_TABSTOP
-                    | if id == AVATARS || id == VOICE_CLEANUP {
+                    | if [AVATARS, VOICE_CLEANUP, NEURAL, SOUNDS].contains(&id) {
                         BS_AUTOCHECKBOX as u32
                     } else {
                         0
@@ -306,6 +332,31 @@ impl App {
             },
             0,
         );
+        for (id, enabled) in [
+            (NEURAL, self.settings.preferences.neural_cleanup),
+            (SOUNDS, self.settings.preferences.notification_sounds),
+        ] {
+            SendMessageW(
+                self.control(id),
+                BM_SETCHECK,
+                if enabled { BST_CHECKED as usize } else { 0 },
+                0,
+            );
+        }
+        make("STATIC", "", THRESHOLD_LABEL, 0);
+        make("msctls_trackbar32", "", THRESHOLD, WS_TABSTOP | TBS_HORZ);
+        SendMessageW(
+            self.control(THRESHOLD),
+            TBM_SETRANGE,
+            1,
+            (40u32 << 16) as isize,
+        );
+        SendMessageW(
+            self.control(THRESHOLD),
+            TBM_SETPOS,
+            1,
+            (self.settings.preferences.noise_threshold_db.clamp(-60, -20) + 60) as isize,
+        );
         for id in [MIC_LABEL, MASTER_LABEL] {
             make("STATIC", "", id, 0);
         }
@@ -331,6 +382,27 @@ impl App {
             1,
             self.settings.preferences.master.min(200) as isize,
         );
+        for (id, cue) in [
+            (SERVER, "wss://your-server:4433"),
+            (USER, "Username"),
+            (PASS, "Password (10+ characters)"),
+            (NAME, "Friend's username"),
+        ] {
+            SendMessageW(
+                self.control(id),
+                EM_SETCUEBANNER,
+                1,
+                w(cue).as_ptr() as isize,
+            );
+        }
+        for id in [SERVER, USER, PASS, NAME, INPUT, HISTORY] {
+            SendMessageW(
+                self.control(id),
+                EM_SETMARGINS,
+                (EC_LEFTMARGIN | EC_RIGHTMARGIN) as usize,
+                (7 << 16) | 7,
+            );
+        }
         if let Err(error) = crate::message_input::attach(self.control(INPUT), h) {
             self.status(&error.to_string());
         }
@@ -345,66 +417,95 @@ impl App {
     unsafe fn layout(&self) {
         let mut r = std::mem::zeroed();
         GetClientRect(self.window, &mut r);
-        let width = r.right.max(800);
-        let height = r.bottom.max(600);
+        let width = r.right.max(920);
+        let height = r.bottom.max(740);
         let pos = |id, x, y, ww, hh| {
             MoveWindow(self.control(id), x, y, ww, hh, 1);
         };
-        pos(SERVER, 8, 8, 250, 26);
-        pos(USER, 266, 8, 125, 26);
-        pos(PASS, 399, 8, 150, 26);
-        pos(LOGIN, 557, 8, 75, 26);
-        pos(REGISTER, 640, 8, 80, 26);
-        pos(LOGOUT, width - 80, 8, 72, 26);
-        pos(STATUS, 8, 42, width - 16, 32);
-        pos(NAME, 8, 82, 190, 25);
-        pos(ADD, 8, 112, 90, 26);
-        pos(ACCEPT, 104, 112, 94, 26);
-        pos(FRIENDS, 8, 144, 190, (height - 360) / 2);
-        pos(CHAT, 8, (height - 360) / 2 + 150, 90, 26);
-        pos(INVITE, 104, (height - 360) / 2 + 150, 94, 26);
+        let left = 16;
+        let side = 216;
+        let main = 248;
+        let content = width - main - 16;
+        pos(192, left, 12, 300, 28);
+        pos(STATUS, 324, 12, width - 340, 30);
+        pos(SERVER, left, 52, 280, 30);
+        pos(USER, 304, 52, 140, 30);
+        pos(PASS, 452, 52, 166, 30);
+        pos(LOGIN, 626, 52, 82, 30);
+        pos(REGISTER, 716, 52, 88, 30);
+        pos(LOGOUT, width - 108, 52, 92, 30);
+        pos(190, left, 102, side, 22);
+        pos(NAME, left, 130, side, 30);
+        pos(ADD, left, 168, 104, 30);
+        pos(ACCEPT, 128, 168, 104, 30);
+        let friends_height = ((height - 280) * 45 / 100).max(120);
+        pos(FRIENDS, left, 208, side, friends_height);
+        let sidebar_y = 218 + friends_height;
+        pos(CHAT, left, sidebar_y, 104, 30);
+        pos(INVITE, 128, sidebar_y, 104, 30);
+        pos(191, left, sidebar_y + 42, side, 22);
         pos(
             CONVOS,
-            8,
-            (height - 360) / 2 + 184,
-            190,
-            height - ((height - 360) / 2 + 192),
+            left,
+            sidebar_y + 70,
+            side,
+            (height - sidebar_y - 86).max(60),
         );
-        pos(OLDER, 208, 82, 120, 26);
-        pos(CALL, 336, 82, 75, 26);
-        pos(JOIN, 419, 82, 100, 26);
-        pos(DECLINE, 527, 82, 80, 26);
-        let avatar_extra = if self.settings.preferences.show_avatars {
-            16
+        pos(OLDER, main, 102, 132, 32);
+        pos(CALL, main + 140, 102, 82, 32);
+        pos(JOIN, main + 230, 102, 108, 32);
+        pos(DECLINE, main + 346, 102, 86, 32);
+        let controls_y = height - 50;
+        let call_height = if self.room.is_some() {
+            if self.settings.preferences.show_avatars {
+                92
+            } else {
+                64
+            }
         } else {
             0
         };
+        let people_y = controls_y - 12 - call_height;
+        let composer_y = people_y - 48;
         let panel_height = if self.panel_open {
-            108 + self.mixer_users.len() as i32 * 24
+            148 + self.mixer_users.len() as i32 * 28
         } else {
             0
         };
-        pos(
-            HISTORY,
-            208,
-            116,
-            width - 216,
-            (height - 284 - avatar_extra - panel_height).max(40),
+        let history_bottom = composer_y - 12 - panel_height;
+        pos(HISTORY, main, 150, content, (history_bottom - 150).max(36));
+        let y = history_bottom + 8;
+        let half = (content - 12) / 2;
+        pos(INPUT_DEVICE, main, y, half, 260);
+        pos(OUTPUT_DEVICE, main + half + 12, y, half, 260);
+        pos(MIC_LABEL, main, y + 36, 110, 24);
+        pos(MIC_GAIN, main + 112, y + 32, half - 112, 30);
+        pos(MASTER_LABEL, main + half + 12, y + 36, 110, 24);
+        pos(MASTER_GAIN, main + half + 124, y + 32, half - 112, 30);
+        pos(AVATARS, main, y + 70, 132, 28);
+        pos(UPLOAD, main + 140, y + 70, 120, 28);
+        pos(REMOVE_AVATAR, main + 268, y + 70, 124, 28);
+        pos(VOICE_CLEANUP, main + 404, y + 70, 150, 28);
+        pos(NEURAL, main, y + 106, 150, 28);
+        pos(SOUNDS, main + 156, y + 106, 115, 28);
+        pos(THRESHOLD_LABEL, main + 280, y + 109, 160, 24);
+        pos(THRESHOLD, main + 444, y + 104, content - 444, 30);
+        set(
+            self.control(THRESHOLD_LABEL),
+            &format!(
+                "Threshold: {} dB",
+                self.settings.preferences.noise_threshold_db.clamp(-60, -20)
+            ),
         );
-        let y = height - 168 - avatar_extra - panel_height;
-        pos(INPUT_DEVICE, 208, y, 270, 260);
-        pos(OUTPUT_DEVICE, 486, y, width - 494, 260);
-        pos(MIC_LABEL, 208, y + 30, 130, 22);
-        pos(MIC_GAIN, 340, y + 26, 138, 28);
-        pos(MASTER_LABEL, 486, y + 30, 130, 22);
-        pos(MASTER_GAIN, 618, y + 26, (width - 626).max(90), 28);
-        pos(VOICE_CLEANUP, 612, y + 60, 160, 26);
-        pos(AVATARS, 208, y + 60, 140, 26);
-        pos(UPLOAD, 356, y + 60, 120, 26);
-        pos(REMOVE_AVATAR, 484, y + 60, 120, 26);
         for i in 0..7 {
-            pos(LABEL_BASE + i, 208, y + 100 + i * 24, 180, 22);
-            pos(GAIN_BASE + i, 396, y + 96 + i * 24, width - 404, 26);
+            pos(LABEL_BASE + i, main, y + 146 + i * 28, 180, 24);
+            pos(
+                GAIN_BASE + i,
+                main + 188,
+                y + 142 + i * 28,
+                content - 188,
+                28,
+            );
         }
         for id in [
             INPUT_DEVICE,
@@ -415,6 +516,10 @@ impl App {
             MASTER_GAIN,
             AVATARS,
             VOICE_CLEANUP,
+            NEURAL,
+            SOUNDS,
+            THRESHOLD,
+            THRESHOLD_LABEL,
             UPLOAD,
             REMOVE_AVATAR,
         ] {
@@ -443,20 +548,24 @@ impl App {
             self.control(MASTER_LABEL),
             &format!("Output: {}%", self.settings.preferences.master.min(200)),
         );
-        pos(INPUT, 208, height - 160 - avatar_extra, width - 296, 28);
-        pos(SEND, width - 80, height - 160 - avatar_extra, 72, 28);
+        pos(INPUT, main, composer_y, content - 100, 36);
+        pos(SEND, width - 108, composer_y, 92, 36);
+        pos(PEOPLE, main, people_y, content, call_height);
+        pos(MIC, main, controls_y, 132, 34);
+        pos(DEAF, main + 140, controls_y, 110, 34);
+        pos(LEAVE, main + 258, controls_y, 80, 34);
         pos(
-            PEOPLE,
-            208,
-            height - 124 - avatar_extra,
-            width - 216,
-            70 + avatar_extra,
+            PANEL,
+            if self.room.is_some() {
+                main + 346
+            } else {
+                main
+            },
+            controls_y,
+            140,
+            34,
         );
-        pos(MIC, 208, height - 42, 105, 30);
-        pos(DEAF, 321, height - 42, 105, 30);
-        pos(LEAVE, 434, height - 42, 85, 30);
-        pos(EXIT_APP, width - 100, height - 42, 92, 30);
-        pos(PANEL, 527, height - 42, 130, 30);
+        pos(EXIT_APP, width - 108, controls_y, 92, 34);
         for id in [PEOPLE, MIC, DEAF, LEAVE] {
             ShowWindow(
                 self.control(id),
@@ -581,6 +690,30 @@ impl App {
                 .find(|c| c.participants.iter().any(|p| p.user.id == u.id))
         });
         let room = current.map(|c| c.id);
+        let old_users: Vec<_> = self
+            .profile
+            .borrow()
+            .call
+            .as_ref()
+            .map(|c| c.participants.iter().map(|p| p.user.id).collect())
+            .unwrap_or_default();
+        let call_changed = room != self.room;
+        let participant_changed = !call_changed
+            && room.is_some()
+            && current.is_some_and(|c| {
+                c.participants
+                    .iter()
+                    .any(|p| !old_users.contains(&p.user.id))
+                    || old_users
+                        .iter()
+                        .any(|id| !c.participants.iter().any(|p| p.user.id == *id))
+            });
+        if (call_changed || participant_changed)
+            && self.settings.preferences.notification_sounds
+            && !self.deaf
+        {
+            crate::sounds::play(crate::sounds::Cue::Call);
+        }
         if let Some(p) = current.and_then(|c| {
             c.participants
                 .iter()
@@ -670,7 +803,11 @@ impl App {
         self.sync_avatars(avatar_users);
         set(
             self.control(MIC),
-            if self.mic { "Unmute mic" } else { "Mute mic" },
+            if self.mic {
+                "Unmute [Ins]"
+            } else {
+                "Mute [Ins]"
+            },
         );
         set(
             self.control(DEAF),
@@ -720,6 +857,22 @@ impl App {
                 }
                 self.save_preferences();
                 self.reopen_audio();
+            }
+            NEURAL | SOUNDS => {
+                let enabled =
+                    SendMessageW(self.control(id), BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
+                if id == NEURAL {
+                    self.settings.preferences.neural_cleanup = enabled;
+                    if let Some(audio) = &self.audio {
+                        audio.neural.store(enabled, Ordering::Relaxed);
+                    }
+                } else {
+                    self.settings.preferences.notification_sounds = enabled;
+                    if !enabled {
+                        crate::sounds::stop();
+                    }
+                }
+                self.save_preferences();
             }
             VOICE_CLEANUP => {
                 let enabled = SendMessageW(self.control(VOICE_CLEANUP), BM_GETCHECK, 0, 0)
@@ -875,8 +1028,18 @@ impl App {
             MIC | DEAF if self.room.is_some() => {
                 if id == MIC {
                     self.mic = !self.mic;
+                    if self.settings.preferences.notification_sounds && !self.deaf {
+                        crate::sounds::play(if self.mic {
+                            crate::sounds::Cue::Mute
+                        } else {
+                            crate::sounds::Cue::Unmute
+                        });
+                    }
                 } else {
                     self.deaf = !self.deaf;
+                    if self.deaf {
+                        crate::sounds::stop();
+                    }
                 }
                 if let Some(a) = &self.audio {
                     a.mic.store(self.mic, Ordering::SeqCst);
@@ -891,7 +1054,11 @@ impl App {
                 });
                 set(
                     self.control(MIC),
-                    if self.mic { "Unmute mic" } else { "Mute mic" },
+                    if self.mic {
+                        "Unmute [Ins]"
+                    } else {
+                        "Mute [Ins]"
+                    },
                 );
                 set(
                     self.control(DEAF),
@@ -909,6 +1076,12 @@ impl App {
                         self.profile.borrow_mut().cache.retry();
                     }
                     if s.starts_with("Disconnected") {
+                        if self.room.is_some()
+                            && self.settings.preferences.notification_sounds
+                            && !self.deaf
+                        {
+                            crate::sounds::play(crate::sounds::Cue::Call);
+                        }
                         self.profile.borrow_mut().cache.clear();
                         self.profile.borrow_mut().call = None;
                         self.mixer_users.clear();
@@ -1129,6 +1302,23 @@ impl App {
         }
     }
     unsafe fn mixer_change(&mut self, id: i32, notification: u16) {
+        if id == THRESHOLD {
+            let db = SendMessageW(self.control(id), WM_USER, 0, 0).clamp(0, 40) as i32 - 60;
+            self.settings.preferences.noise_threshold_db = db;
+            if let Some(audio) = &self.audio {
+                audio
+                    .threshold
+                    .store(10f32.powf(db as f32 / 20.).to_bits(), Ordering::Relaxed);
+            }
+            set(
+                self.control(THRESHOLD_LABEL),
+                &format!("Threshold: {db} dB"),
+            );
+            if notification != TB_THUMBTRACK as u16 {
+                self.save_preferences();
+            }
+            return;
+        }
         let value =
             SendMessageW(self.control(id), WM_USER /* TBM_GETPOS */, 0, 0).clamp(0, 200) as u16;
         if id == MIC_GAIN {
@@ -1223,8 +1413,8 @@ fn stamp(t: u64) -> String {
 unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if msg == WM_GETMINMAXINFO {
         let info = &mut *(lp as *mut MINMAXINFO);
-        info.ptMinTrackSize.x = 820;
-        info.ptMinTrackSize.y = 656;
+        info.ptMinTrackSize.x = 940;
+        info.ptMinTrackSize.y = 800;
         return 0;
     }
     // Queue control notifications so synchronous Win32 callbacks cannot reborrow App.
@@ -1245,11 +1435,16 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
     }
     if matches!(
         msg,
-        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX
+        WM_CTLCOLORSTATIC | WM_CTLCOLOREDIT | WM_CTLCOLORLISTBOX | WM_CTLCOLORBTN | WM_CTLCOLORDLG
     ) {
-        SetTextColor(wp as HDC, 0x00dedede);
-        SetBkColor(wp as HDC, 0x00202020);
-        SetDCBrushColor(wp as HDC, 0x00202020);
+        let color = if matches!(msg, WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLORDLG) {
+            crate::theme::BACKGROUND
+        } else {
+            crate::theme::SURFACE
+        };
+        SetTextColor(wp as HDC, crate::theme::TEXT);
+        SetBkColor(wp as HDC, color);
+        SetDCBrushColor(wp as HDC, color);
         return GetStockObject(DC_BRUSH) as isize;
     }
     if msg == crate::tray::CALLBACK {
@@ -1262,6 +1457,10 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
     }
     if msg == WM_DRAWITEM && lp != 0 {
         let draw = &*(lp as *const DRAWITEMSTRUCT);
+        if draw.CtlType == ODT_BUTTON {
+            crate::theme::button(draw);
+            return 1;
+        }
         if draw.CtlID == PEOPLE as u32 {
             let cell = GetPropW(h, crate::profile_ui::property().as_ptr())
                 as *const std::cell::RefCell<crate::profile_ui::View>;
@@ -1312,6 +1511,10 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             return 0;
         }
         match msg {
+            WM_HOTKEY if wp == INSERT_HOTKEY as usize => {
+                (&mut *ptr).command(MIC, 0);
+                return 0;
+            }
             MIXER_CHANGE => {
                 (&mut *ptr).mixer_change(GetDlgCtrlID(lp as HWND), wp as u16);
                 return 0;
@@ -1359,6 +1562,10 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             }
             crate::tray::EXIT => {
                 let a = &mut *ptr;
+                if a.hotkey {
+                    UnregisterHotKey(h, INSERT_HOTKEY);
+                }
+                crate::sounds::stop();
                 a.tray.remove();
                 if let Some(b) = a.bridge.take() {
                     b.task.abort();
@@ -1386,7 +1593,7 @@ pub fn run() -> anyhow::Result<()> {
         InitCommonControlsEx(&controls);
         let instance = GetModuleHandleW(null());
         let class = w("MiniVoiceWindow");
-        let brush = CreateSolidBrush(0x00202020);
+        let brush = CreateSolidBrush(crate::theme::BACKGROUND);
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
             hInstance: instance,
@@ -1409,8 +1616,8 @@ pub fn run() -> anyhow::Result<()> {
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            940,
-            700,
+            1020,
+            880,
             null_mut(),
             null_mut(),
             instance,
@@ -1425,6 +1632,8 @@ pub fn run() -> anyhow::Result<()> {
         let mut app = Box::new(App {
             window: hwnd,
             tray: crate::tray::Tray::new(hwnd),
+            theme: crate::theme::Theme::new(),
+            hotkey: false,
             rt: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .max_blocking_threads(2)
@@ -1459,6 +1668,10 @@ pub fn run() -> anyhow::Result<()> {
         );
         app.profile.borrow_mut().enabled = app.settings.preferences.show_avatars;
         app.create();
+        app.hotkey = RegisterHotKey(hwnd, INSERT_HOTKEY, MOD_NOREPEAT, VK_INSERT as u32) != 0;
+        if !app.hotkey {
+            app.status("Insert shortcut unavailable (used by another app); use the mic button");
+        }
         SetTimer(hwnd, 1, 1000, None);
         ShowWindow(hwnd, SW_SHOW);
         app.tray.update(
@@ -1469,6 +1682,14 @@ pub fn run() -> anyhow::Result<()> {
         crate::diagnostics::record("UI ready");
         let mut msg = std::mem::zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
+            if !app.hotkey
+                && msg.message == WM_KEYDOWN
+                && msg.wParam == VK_INSERT as usize
+                && msg.lParam & (1 << 30) == 0
+            {
+                PostMessageW(hwnd, WM_COMMAND, MIC as usize, 0);
+                continue;
+            }
             if msg.message == WM_SYSKEYDOWN
                 && msg.wParam == b'V' as usize
                 && (msg.lParam & (1 << 30)) == 0
