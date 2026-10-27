@@ -1,0 +1,119 @@
+#![cfg(windows)]
+//! Exercise the actual GUI executable with a saved endpoint, not a library-only build.
+use std::{
+    io::Read,
+    net::TcpListener,
+    process::{Child, Command},
+    thread,
+    time::{Duration, Instant},
+};
+use windows_sys::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
+struct Client(Child);
+impl Drop for Client {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+struct Search {
+    pid: u32,
+    window: HWND,
+}
+unsafe extern "system" fn find(window: HWND, param: LPARAM) -> i32 {
+    let search = &mut *(param as *mut Search);
+    let mut pid = 0;
+    GetWindowThreadProcessId(window, &mut pid);
+    if pid == search.pid && !GetDlgItem(window, 141).is_null() {
+        search.window = window;
+        return 0;
+    }
+    1
+}
+fn wait_until(mut check: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !check() {
+        assert!(Instant::now() < deadline, "GUI operation timed out");
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+#[test]
+fn saved_endpoint_startup_background_restore_and_exit() {
+    let temp = std::env::temp_dir().join(format!("mini-voice-gui-test-{}", std::process::id()));
+    let settings = temp.join("MiniVoice");
+    std::fs::create_dir_all(&settings).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::fs::write(
+        settings.join("settings.json"),
+        format!(r#"{{"server":"wss://127.0.0.1:{port}","token":[]}}"#),
+    )
+    .unwrap();
+    let mut child = Client(
+        Command::new(env!("CARGO_BIN_EXE_mini-client"))
+            .env("LOCALAPPDATA", &temp)
+            .spawn()
+            .unwrap(),
+    );
+    let mut search = Search {
+        pid: child.0.id(),
+        window: std::ptr::null_mut(),
+    };
+    wait_until(|| {
+        assert!(
+            child.0.try_wait().unwrap().is_none(),
+            "GUI exited during startup"
+        );
+        unsafe {
+            EnumWindows(Some(find), &mut search as *mut _ as isize);
+        }
+        !search.window.is_null() && unsafe { IsWindowVisible(search.window) } != 0
+    });
+    let mut socket = None;
+    wait_until(|| {
+        socket = listener.accept().ok().map(|s| s.0);
+        socket.is_some()
+    });
+    let mut socket = socket.unwrap();
+    socket.set_nonblocking(false).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut header = [0; 5];
+    socket
+        .read_exact(&mut header)
+        .expect("actual standalone EXE did not send TLS ClientHello");
+    assert_eq!(header[0], 22);
+    unsafe {
+        PostMessageW(search.window, WM_CLOSE, 0, 0);
+    }
+    wait_until(|| unsafe { IsWindowVisible(search.window) } == 0);
+    assert!(
+        child.0.try_wait().unwrap().is_none(),
+        "close must keep process alive"
+    );
+    // Exercise the same callback emitted by the notification-area icon.
+    unsafe {
+        PostMessageW(search.window, WM_APP + 4, 1, WM_LBUTTONUP as isize);
+    }
+    wait_until(|| unsafe { IsWindowVisible(search.window) } != 0);
+    // Minimize must also preserve the connection and hide to tray.
+    unsafe {
+        PostMessageW(search.window, WM_SYSCOMMAND, SC_MINIMIZE as usize, 0);
+    }
+    wait_until(|| unsafe { IsWindowVisible(search.window) } == 0);
+    unsafe {
+        PostMessageW(search.window, WM_APP + 4, 1, WM_LBUTTONUP as isize);
+    }
+    wait_until(|| unsafe { IsWindowVisible(search.window) } != 0);
+    // Exit app is a normal button, also usable when the tray is unavailable.
+    unsafe {
+        PostMessageW(search.window, WM_COMMAND, 141, 0);
+    }
+    wait_until(|| child.0.try_wait().unwrap().is_some());
+    assert!(child.0.wait().unwrap().success());
+    let log = std::fs::read_to_string(settings.join("client.log")).unwrap();
+    assert!(log.contains("UI ready") && log.contains("normal exit"));
+    assert!(!log.contains("panic"));
+    std::fs::remove_dir_all(temp).unwrap();
+}

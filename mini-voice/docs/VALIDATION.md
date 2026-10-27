@@ -2,8 +2,8 @@
 
 Linux build environment: Debian 13 x64, Rust 1.99.1, GCC, CMake 4.4.4.
 Windows cross target: x86_64-pc-windows-gnu, GCC MinGW-w64 14, release profile.
-The Windows runtime, physical audio devices and separate residential networks
-are unavailable here. An executable being built is not proof it runs correctly
+A native Windows runtime, physical audio devices and separate residential
+networks are unavailable here. A Wine smoke test is described below. An executable being built is not proof it runs correctly
 on either supported Windows version.
 
 ## Automated checks
@@ -115,3 +115,36 @@ public ACME issuance/renewal or external internet call quality. The installer
 is prepared and locally checked, not deployed. Verify those steps using
 HOSTING.md before considering a hosted server ready. Oracle may require a
 payment card even for free resources; this project provides no workaround.
+
+## Standalone client TLS startup and background mode
+
+The icon update rebuilt only `mini-client`, revealing a dependency on the
+server's workspace features: `rustls` had no crypto backend in a standalone
+client build. Auto-connect to a saved reachable server panicked during TLS
+configuration; release `panic=abort` terminated the process. This was reproduced
+by `cargo test --locked -p mini-client --test standalone_tls` before the fix.
+
+The client now directly enables aws-lc-rs and installs its crypto provider before
+spawning its connection task. The standalone test receives an actual TLS
+ClientHello over loopback, without bypassing certificate verification. It passes
+both alone and with the workspace. CI explicitly runs the standalone test before
+workspace tests to prevent feature unification from hiding the regression.
+
+The Windows-only `windows_startup` test launches the real client executable with
+isolated settings and a saved local server endpoint. It verifies a TLS
+ClientHello, window startup, close-to-tray with a live process, restoration via
+the tray callback, minimize-to-tray, restoration again, Exit app, and clean
+startup/exit logs. The optimized GNU Windows executable passed this test under
+Wine 10 with Xvfb. This is compatibility-layer evidence; native Windows 10/11,
+notification-area appearance, physical audio, actual microphone behavior while
+hidden, and RAM/CPU still require testing on Windows. The existing eight-client
+TLS/UDP/reconnect integration and all ten Linux Rust tests pass.
+
+Startup diagnostics write bounded rotating logs to
+`%LOCALAPPDATA%\MiniVoice\client.log` and report initialization errors or Rust
+panics in a dialog. The log excludes panic payloads and does not record tokens,
+passwords or messages. Windows loader failures/native exceptions before the
+panic hook can still require Windows Event Viewer. Background mode keeps the
+existing event loop/network/audio running; it does not install autostart or a
+Windows service. If Shell refuses a notification icon, the window stays
+accessible on the taskbar; Exit app remains available in the window.

@@ -45,6 +45,8 @@ pub fn start(
     mixer: Arc<Mutex<Mixer>>,
     connector: Option<Connector>,
 ) -> Bridge {
+    // Select explicitly: workspace feature unification may enable another backend.
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let (tx, rx) = mpsc::channel(32);
     let (atx, arx) = mpsc::channel(3);
     let connected_endpoint = endpoint.clone();

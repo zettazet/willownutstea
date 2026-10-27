@@ -48,6 +48,7 @@ const MIC: i32 = 131;
 const DEAF: i32 = 132;
 const LEAVE: i32 = 133;
 const STATUS: i32 = 140;
+const EXIT_APP: i32 = 141;
 fn w(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
 }
@@ -62,6 +63,7 @@ unsafe fn text(h: HWND) -> String {
 }
 struct App {
     window: HWND,
+    tray: crate::tray::Tray,
     rt: tokio::runtime::Runtime,
     bridge: Option<Bridge>,
     events: Receiver<UiEvent>,
@@ -178,6 +180,7 @@ impl App {
             (MIC, "Mute mic"),
             (DEAF, "Deafen"),
             (LEAVE, "Leave"),
+            (EXIT_APP, "Exit app"),
         ] {
             make("BUTTON", label, id, WS_TABSTOP);
         }
@@ -269,6 +272,7 @@ impl App {
         pos(MIC, 208, height - 42, 105, 30);
         pos(DEAF, 321, height - 42, 105, 30);
         pos(LEAVE, 434, height - 42, 85, 30);
+        pos(EXIT_APP, width - 100, height - 42, 92, 30);
         for id in [PEOPLE, MIC, DEAF, LEAVE] {
             ShowWindow(
                 self.control(id),
@@ -451,6 +455,10 @@ impl App {
         }
     }
     unsafe fn command(&mut self, id: i32, notification: u16) {
+        if id == EXIT_APP {
+            PostMessageW(self.window, crate::tray::EXIT, 0, 0);
+            return;
+        }
         match id {
             LOGIN | REGISTER => {
                 if self.bridge.is_none() || text(self.control(SERVER)) != self.settings.server {
@@ -734,6 +742,9 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         return 0;
     }
     if msg == WM_SIZE {
+        if wp == SIZE_MINIMIZED as usize {
+            PostMessageW(h, WM_CLOSE, 0, 0);
+        }
         PostMessageW(h, LAYOUT, 0, 0);
         return 0;
     }
@@ -746,8 +757,23 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         SetDCBrushColor(wp as HDC, 0x00202020);
         return GetStockObject(DC_BRUSH) as isize;
     }
+    if msg == crate::tray::CALLBACK {
+        crate::tray::callback(h, lp as u32);
+        return 0;
+    }
+    if msg == crate::tray::SHOW {
+        crate::tray::show(h);
+        return 0;
+    }
     let ptr = GetWindowLongPtrW(h, GWLP_USERDATA) as *mut App;
     if !ptr.is_null() {
+        static TASKBAR_CREATED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+        let taskbar_created =
+            *TASKBAR_CREATED.get_or_init(|| RegisterWindowMessageW(w("TaskbarCreated").as_ptr()));
+        if taskbar_created != 0 && msg == taskbar_created {
+            (&*ptr).tray.explorer_restarted();
+            return 0;
+        }
         match msg {
             ACTION => {
                 if ((wp >> 16) as u16) == BN_CLICKED as u16
@@ -768,6 +794,8 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             }
             WM_TIMER => {
                 let a = &mut *ptr;
+                a.tray
+                    .update(&text(a.control(STATUS)), a.room.is_some(), a.mic);
                 if a.audio
                     .as_ref()
                     .is_some_and(|x| x.failed.load(Ordering::Relaxed))
@@ -781,7 +809,14 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 return 0;
             }
             WM_CLOSE => {
+                let a = &*ptr;
+                a.tray
+                    .hide(&text(a.control(STATUS)), a.room.is_some(), a.mic);
+                return 0;
+            }
+            crate::tray::EXIT => {
                 let a = &mut *ptr;
+                a.tray.remove();
                 if let Some(b) = a.bridge.take() {
                     b.task.abort();
                 }
@@ -798,7 +833,8 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
     }
     DefWindowProcW(h, msg, wp, lp)
 }
-pub fn run() {
+pub fn run() -> anyhow::Result<()> {
+    crate::diagnostics::record("initializing Windows UI");
     unsafe {
         let instance = GetModuleHandleW(null());
         let class = w("MiniVoiceWindow");
@@ -813,7 +849,11 @@ pub fn run() {
             hbrBackground: brush,
             ..std::mem::zeroed()
         };
-        RegisterClassW(&wc);
+        anyhow::ensure!(
+            RegisterClassW(&wc) != 0,
+            "Window class registration failed: {}",
+            std::io::Error::last_os_error()
+        );
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
@@ -828,18 +868,20 @@ pub fn run() {
             instance,
             null(),
         );
-        if hwnd.is_null() {
-            return;
-        }
+        anyhow::ensure!(
+            !hwnd.is_null(),
+            "Window creation failed: {}",
+            std::io::Error::last_os_error()
+        );
         let (tx, rx) = sync_channel(128);
         let mut app = Box::new(App {
             window: hwnd,
+            tray: crate::tray::Tray::new(hwnd),
             rt: tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .max_blocking_threads(2)
                 .enable_all()
-                .build()
-                .unwrap(),
+                .build()?,
             bridge: None,
             events: rx,
             sender: tx,
@@ -859,6 +901,12 @@ pub fn run() {
         app.create();
         SetTimer(hwnd, 1, 1000, None);
         ShowWindow(hwnd, SW_SHOW);
+        app.tray.update(
+            "Ready; close window to keep running in background",
+            false,
+            false,
+        );
+        crate::diagnostics::record("UI ready");
         let mut msg = std::mem::zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
             if msg.message == WM_SYSKEYDOWN
@@ -870,6 +918,10 @@ pub fn run() {
                 }
                 continue;
             }
+            if msg.message == WM_SYSKEYDOWN && msg.wParam == 0x73 {
+                PostMessageW(hwnd, WM_CLOSE, 0, 0);
+                continue;
+            }
             if IsDialogMessageW(hwnd, &msg) == 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
@@ -878,5 +930,7 @@ pub fn run() {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         drop(app);
         DeleteObject(brush);
+        crate::diagnostics::record("normal exit");
     }
+    Ok(())
 }

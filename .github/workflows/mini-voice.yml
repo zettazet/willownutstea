@@ -28,6 +28,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: cargo fmt --all --check
+      # Build/test the client alone: server features must not hide missing TLS dependencies.
+      - run: cargo test --locked -p mini-client --test standalone_tls
       - run: cargo test --locked --workspace
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - if: runner.os == 'Linux'

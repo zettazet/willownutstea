@@ -1,2 +1,2 @@
-0a2bb23d3f5ce27a71ebd607a89fe0e3621f0c0f13936bb1d9d72d83469b0eda  mini-client.exe
+0937a88a1210f61a89b11adb06d9c9b84468e2310981fca4bff41a5b99ad2fa3  mini-client.exe
 4e8d5293be89afe80c31f5d55c65ec6ab3d69d149eba475a78945bdc5dadb507  mini-server.exe
