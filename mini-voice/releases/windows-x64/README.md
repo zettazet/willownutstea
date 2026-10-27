@@ -38,3 +38,7 @@ Exit (end calls). Кнопка Exit app у вікні також повніст�
 і токенів; попередній журнал — client.previous.log. При внутрішній помилці
 показується діалог із розташуванням журналу. Збої Windows до запуску програми
 можуть не потрапити в журнал.
+
+Оновлення: **Audio / Profile** — гучність, пристрої, аватар і Show Avatars.
+Enter надсилає, Shift+Enter додає новий рядок. Для аватарів онови також сервер.
+Деталі: [Audio / Profile та оновлення сервера](https://github.com/zettazet/willownutstea/blob/main/mini-voice/docs/CLIENT-UPDATE.md).

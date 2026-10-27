@@ -1,3 +1,16 @@
+/// Bounded application gain, independent of the Windows system mixer.
+pub fn apply_gain(sample: f32, percent: u32) -> f32 {
+    limit(sample * percent.min(200) as f32 * 0.01)
+}
+// Gentle peak limiting prevents hard clipping at high gain, without per-sample allocations.
+fn limit(sample: f32) -> f32 {
+    let magnitude = sample.abs();
+    if magnitude <= 0.9 {
+        sample
+    } else {
+        sample.signum() * (0.9 + (magnitude - 0.9) / (1. + 10. * (magnitude - 0.9)))
+    }
+}
 use mini_shared::{FRAME, MAX_OPUS};
 use std::collections::{HashMap, VecDeque};
 const JITTER_FRAMES: usize = 6;
@@ -18,6 +31,7 @@ pub struct Speaker {
     pos: usize,
     started: bool,
     lost: u32,
+    gain: f32,
 }
 impl Speaker {
     fn new(sequence: u64) -> anyhow::Result<Self> {
@@ -29,6 +43,7 @@ impl Speaker {
             pos: FRAME,
             started: false,
             lost: 0,
+            gain: 1.,
         })
     }
     fn packet(&mut self, sequence: u64, data: &[u8]) -> anyhow::Result<()> {
@@ -118,6 +133,8 @@ impl Speaker {
 }
 pub struct Mixer {
     pub speakers: HashMap<i64, Speaker>,
+    pub gains: HashMap<i64, f32>,
+    pub master: f32,
 }
 impl Default for Mixer {
     fn default() -> Self {
@@ -128,6 +145,8 @@ impl Mixer {
     pub fn new() -> Self {
         Self {
             speakers: HashMap::with_capacity(7),
+            gains: HashMap::with_capacity(7),
+            master: 1.,
         }
     }
     pub fn packet(&mut self, user: i64, sequence: u64, data: &[u8]) -> anyhow::Result<()> {
@@ -135,16 +154,27 @@ impl Mixer {
             if self.speakers.len() >= 7 {
                 return Ok(());
             }
-            self.speakers.insert(user, Speaker::new(sequence)?);
+            let mut speaker = Speaker::new(sequence)?;
+            speaker.gain = self.gains.get(&user).copied().unwrap_or(1.);
+            self.speakers.insert(user, speaker);
         }
         self.speakers.get_mut(&user).unwrap().packet(sequence, data)
     }
+    pub fn set_user_gain(&mut self, user: i64, gain: f32) {
+        let gain = gain.clamp(0., 2.);
+        self.gains.insert(user, gain);
+        if let Some(speaker) = self.speakers.get_mut(&user) {
+            speaker.gain = gain;
+        }
+    }
     pub fn sample(&mut self) -> f32 {
-        self.speakers
-            .values_mut()
-            .map(Speaker::sample)
-            .sum::<f32>()
-            .clamp(-1., 1.)
+        limit(
+            self.speakers
+                .values_mut()
+                .map(|speaker| speaker.sample() * speaker.gain)
+                .sum::<f32>()
+                * self.master.clamp(0., 2.),
+        )
     }
 }
 #[cfg(windows)]
@@ -152,7 +182,7 @@ pub mod device {
     use super::*;
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use std::sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex,
     };
     pub struct Audio {
@@ -161,23 +191,80 @@ pub mod device {
         pub mic: Arc<AtomicBool>,
         pub deaf: Arc<AtomicBool>,
         pub failed: Arc<AtomicBool>,
+        pub input_gain: Arc<AtomicU32>,
+    }
+    fn preflight() -> anyhow::Result<()> {
+        // CPAL 0.16 unwraps COM activation internally. Check it first so a missing
+        // Windows audio service/driver produces an error instead of aborting.
+        use windows::Win32::{
+            Media::Audio::{IMMDeviceEnumerator, MMDeviceEnumerator},
+            System::Com::*,
+        };
+        unsafe {
+            let initialized = CoInitializeEx(None, COINIT_MULTITHREADED).is_ok();
+            let result =
+                CoCreateInstance::<_, IMMDeviceEnumerator>(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                    .map(|_| ());
+            if initialized {
+                CoUninitialize();
+            }
+            result.map_err(|e| anyhow::anyhow!("Windows audio service unavailable: {e}"))
+        }
+    }
+    pub fn devices(input: bool) -> Vec<String> {
+        if preflight().is_err() {
+            return vec![];
+        }
+        let host = cpal::default_host();
+        let list = if input {
+            host.input_devices()
+        } else {
+            host.output_devices()
+        };
+        list.map(|devices| devices.filter_map(|d| d.name().ok()).collect())
+            .unwrap_or_default()
+    }
+    fn select(
+        host: &cpal::Host,
+        name: &Option<String>,
+        input: bool,
+    ) -> anyhow::Result<cpal::Device> {
+        if let Some(name) = name {
+            let devices = if input {
+                host.input_devices()?
+            } else {
+                host.output_devices()?
+            };
+            if let Some(device) = devices
+                .into_iter()
+                .find(|d| d.name().ok().as_ref() == Some(name))
+            {
+                return Ok(device);
+            }
+        }
+        (if input {
+            host.default_input_device()
+        } else {
+            host.default_output_device()
+        })
+        .ok_or_else(|| anyhow::anyhow!("No available audio device"))
     }
     impl Audio {
         pub fn open(
             tx: tokio::sync::mpsc::Sender<AudioPacket>,
             mixer: Arc<Mutex<Mixer>>,
+            preferences: &crate::preferences::Preferences,
+            mic_muted: bool,
+            deafened: bool,
         ) -> anyhow::Result<Self> {
+            preflight()?;
             let host = cpal::default_host();
-            let input = host
-                .default_input_device()
-                .ok_or_else(|| anyhow::anyhow!("No microphone"))?;
-            let output = host
-                .default_output_device()
-                .ok_or_else(|| anyhow::anyhow!("No speakers"))?;
+            let input = select(&host, &preferences.input_device, true)?;
+            let output = select(&host, &preferences.output_device, false)?;
             let ic = input.default_input_config()?;
             let oc = output.default_output_config()?;
-            let mic = Arc::new(AtomicBool::new(false));
-            let deaf = Arc::new(AtomicBool::new(false));
+            let mic = Arc::new(AtomicBool::new(mic_muted));
+            let deaf = Arc::new(AtomicBool::new(deafened));
             let failed = Arc::new(AtomicBool::new(false));
             let mut enc = opus::Encoder::new(48000, opus::Channels::Mono, opus::Application::Voip)?;
             enc.set_bitrate(opus::Bitrate::Bits(24000))?;
@@ -187,6 +274,8 @@ pub mod device {
             let rate = ic.sample_rate().0;
             let channels = ic.channels() as usize;
             let m = mic.clone();
+            let input_gain = Arc::new(AtomicU32::new(preferences.microphone.min(200) as u32));
+            let gain = input_gain.clone();
             let mut frame = [0f32; FRAME];
             let mut used = 0;
             let mut phase = 0u64;
@@ -203,7 +292,10 @@ pub mod device {
                 while phase >= rate as u64 {
                     phase -= rate as u64;
                     let blend = phase as f32 / 48000.;
-                    frame[used] = value * (1. - blend) + previous * blend;
+                    frame[used] = apply_gain(
+                        value * (1. - blend) + previous * blend,
+                        gain.load(Ordering::Relaxed),
+                    );
                     used += 1;
                     if used == FRAME {
                         if let Ok(n) = enc.encode_float(&frame, &mut packet) {
@@ -302,6 +394,7 @@ pub mod device {
                 mic,
                 deaf,
                 failed,
+                input_gain,
             })
         }
     }
@@ -354,5 +447,43 @@ mod tests {
         assert!(mixer.speakers.values().all(|s| !s.started));
         mixer.speakers.clear();
         assert_eq!(mixer.sample(), 0.);
+    }
+}
+
+#[cfg(test)]
+mod gain_tests {
+    use super::*;
+    #[test]
+    fn capture_master_and_independent_participant_gains() {
+        assert!(apply_gain(0.75, 200) > 0.9 && apply_gain(0.75, 200) < 1.);
+        assert!((apply_gain(0.5, 40) - 0.2).abs() < 0.000001);
+        assert_eq!(apply_gain(0.5, 0), 0.);
+        let mut encoder =
+            opus::Encoder::new(48000, opus::Channels::Mono, opus::Application::Voip).unwrap();
+        let pcm: Vec<f32> = (0..FRAME).map(|i| (i as f32 * 0.09).sin() * 0.1).collect();
+        let mut bytes = [0; MAX_OPUS];
+        let n = encoder.encode_float(&pcm, &mut bytes).unwrap();
+        let mut one = Mixer::new();
+        let mut two = Mixer::new();
+        for seq in 0..4 {
+            for mix in [&mut one, &mut two] {
+                for id in [1, 2] {
+                    mix.packet(id, seq, &bytes[..n]).unwrap();
+                }
+            }
+        }
+        two.set_user_gain(1, 0.);
+        two.set_user_gain(2, 0.4);
+        two.master = 1.5;
+        for _ in 0..FRAME {
+            assert!((two.sample() - one.sample() * 0.3).abs() < 0.00001);
+        }
+        // Change one gain while decoders are already playing buffered packets.
+        two.set_user_gain(2, 0.8);
+        for _ in 0..FRAME {
+            assert!((two.sample() - one.sample() * 0.6).abs() < 0.00001);
+        }
+        two.master = 0.;
+        assert_eq!(two.sample(), 0.);
     }
 }

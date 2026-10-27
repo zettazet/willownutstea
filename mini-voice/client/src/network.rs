@@ -22,6 +22,7 @@ pub struct Bridge {
     pub endpoint: String,
     pub requests: mpsc::Sender<Request>,
     pub audio: mpsc::Sender<AudioPacket>,
+    pub avatars: mpsc::Sender<Vec<u8>>,
     pub task: tokio::task::JoinHandle<()>,
 }
 fn notify(
@@ -49,6 +50,7 @@ pub fn start(
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
     let (tx, rx) = mpsc::channel(32);
     let (atx, arx) = mpsc::channel(3);
+    let (avatar_tx, avatar_rx) = mpsc::channel(1);
     let connected_endpoint = endpoint.clone();
     let task = rt.spawn(run(
         endpoint,
@@ -59,11 +61,13 @@ pub fn start(
         connector,
         rx,
         arx,
+        avatar_rx,
     ));
     Bridge {
         endpoint: connected_endpoint,
         requests: tx,
         audio: atx,
+        avatars: avatar_tx,
         task,
     }
 }
@@ -77,6 +81,7 @@ async fn run(
     connector: Option<Connector>,
     mut rx: mpsc::Receiver<Request>,
     mut arx: mpsc::Receiver<AudioPacket>,
+    mut avatar_rx: mpsc::Receiver<Vec<u8>>,
 ) {
     let _url = match url::Url::parse(&endpoint) {
         Ok(u)
@@ -129,6 +134,8 @@ async fn run(
             if let Some(t) = &token {
                 let _ = send_request(&mut sink, &Request::Resume { token: t.clone() }).await;
             }
+            let mut active_upload: Option<(Vec<u8>, usize)> = None;
+            let mut avatar_send_after = tokio::time::Instant::now();
             let mut authenticated = false;
             let mut me = 0;
             let mut room: Option<u64> = None;
@@ -146,6 +153,23 @@ async fn run(
             let mut heartbeat_ticks = 0u32;
             loop {
                 tokio::select! {
+                    upload=avatar_rx.recv()=>{
+                        if let Some(bytes)=upload {
+                            if authenticated && !bytes.is_empty() && bytes.len()<=MAX_AVATAR_UPLOAD && active_upload.is_none() {
+                                active_upload=Some((bytes,0));
+                            } else {notify(&ui,&wake,UiEvent::Status("Avatar upload requires sign-in; wait for current upload".into()));}
+                        }
+                    },
+                    _=tokio::time::sleep_until(avatar_send_after),if active_upload.is_some()=>{
+                        let (bytes,offset)=active_upload.as_mut().unwrap();
+                        let chunk=if room.is_some(){1024}else{AVATAR_CHUNK};
+                        let end=(*offset+chunk).min(bytes.len());
+                        let request=Request::AvatarChunk{total:bytes.len(),offset:*offset,data:hex::encode(&bytes[*offset..end])};
+                        if send_request(&mut sink,&request).await.is_err(){break;}
+                        *offset=end;
+                        avatar_send_after=tokio::time::Instant::now()+if room.is_some(){Duration::from_millis(75)}else{Duration::ZERO};
+                        if end==bytes.len(){active_upload=None;}
+                    },
                     _=heartbeat.tick()=>{
                         if last.elapsed()>Duration::from_secs(35) {break;}
                         let use_udp=room.is_some() && last_udp.elapsed()<Duration::from_secs(3);
@@ -158,7 +182,7 @@ async fn run(
                     },
                     cmd=rx.recv()=>{
                         let Some(cmd)=cmd else{return;};
-                        if matches!(cmd,Request::Login{..}|Request::Register{..}){pending.clear();desired_call=None;}
+                        if matches!(cmd,Request::Login{..}|Request::Register{..}){active_upload=None;pending.clear();desired_call=None;}
                         if let Request::Send{nonce,..}=&cmd {
                             if pending.len()>=32 || (!authenticated && token.is_none()) {
                                 notify(&ui,&wake,UiEvent::Server(Event::Rejected{nonce:nonce.clone(),message:"Outbox full or not signed in".into()}));continue;
@@ -176,7 +200,7 @@ async fn run(
                             if *m {while arx.try_recv().is_ok(){}}
                         }
                         if matches!(cmd,Request::Leave {}){desired_call=None;room=None;while arx.try_recv().is_ok(){}}
-                        if matches!(cmd,Request::Logout {}){token=None;pending.clear();desired_call=None;}
+                        if matches!(cmd,Request::Logout {}){active_upload=None;token=None;pending.clear();desired_call=None;}
                         if send_request(&mut sink,&cmd).await.is_err(){break;}
                     },
                     audio=arx.recv(),if authenticated=>{
@@ -250,10 +274,11 @@ async fn run(
                                         notify(&ui,&wake,UiEvent::Server(Event::LoggedOut));
                                     },
                                     Event::Error{message} if message=="Signed in elsewhere"=>{
-                                        token=None;authenticated=false;desired_call=None;pending.clear();
+                                        active_upload=None;token=None;authenticated=false;desired_call=None;pending.clear();
                                         notify(&ui,&wake,UiEvent::Server(Event::LoggedOut));
                                     },
-                                    Event::LoggedOut=>{token=None;authenticated=false;pending.clear();desired_call=None;},
+                                    Event::Error{..} if active_upload.is_some()=>{active_upload=None;},
+                                    Event::LoggedOut=>{active_upload=None;token=None;authenticated=false;pending.clear();desired_call=None;},
                                     _=>{}
                                 }
                                 if !notify(&ui,&wake,UiEvent::Server(event)){break;}

@@ -254,3 +254,6 @@ sudo install -o ubuntu -g ubuntu -m 0600 \
 
 Реальну Oracle VM, її NSG, ACME та поновлення не перевірено в build-середовищі.
 [VALIDATION.md](VALIDATION.md) описує виконані перевірки й решту acceptance-тестів.
+
+Оновлення клієнта Audio / Profile додає серверні аватари. Для наявної VM дивись
+[інструкцію оновлення без скидання акаунтів](CLIENT-UPDATE.md#updating-your-existing-oracle-server).

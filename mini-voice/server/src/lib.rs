@@ -1,8 +1,10 @@
+mod avatars;
 use anyhow::{bail, ensure, Result};
 use argon2::{
     password_hash::{PasswordHash, SaltString},
     Argon2, PasswordHasher, PasswordVerifier,
 };
+pub use avatars::optimize as optimize_avatar;
 use mini_shared::*;
 use rand::{rngs::OsRng, RngCore};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -55,6 +57,7 @@ pub struct Peer {
     pub voice_tick: u64,
     pub voice_count: u32,
     pub udp_enabled: bool,
+    pub avatar_epoch: u64,
     pub overloaded: std::sync::atomic::AtomicBool,
 }
 pub struct Server {
@@ -63,6 +66,7 @@ pub struct Server {
     pub rooms: HashMap<u64, Room>,
     pub udp_port: u16,
     rejoin: HashMap<i64, (u64, u64)>,
+    uploads: HashMap<i64, avatars::Upload>,
 }
 pub enum AuthWork {
     Register(String, String),
@@ -110,6 +114,7 @@ impl Server {
  CREATE TABLE IF NOT EXISTS members(conversation INTEGER REFERENCES conversations(id),user INTEGER REFERENCES users(id),PRIMARY KEY(conversation,user));
  CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY,conversation INTEGER NOT NULL REFERENCES conversations(id),sender INTEGER NOT NULL REFERENCES users(id),timestamp INTEGER NOT NULL,nonce TEXT NOT NULL,text TEXT NOT NULL,UNIQUE(sender,nonce));
  CREATE INDEX IF NOT EXISTS message_page ON messages(conversation,id);
+ CREATE TABLE IF NOT EXISTS avatars(user INTEGER PRIMARY KEY REFERENCES users(id), revision TEXT NOT NULL, data BLOB NOT NULL);
  CREATE INDEX IF NOT EXISTS user_members ON members(user,conversation);")?;
         Ok(Self {
             db,
@@ -117,15 +122,17 @@ impl Server {
             rooms: HashMap::new(),
             udp_port,
             rejoin: HashMap::new(),
+            uploads: HashMap::new(),
         })
     }
     pub fn user(&self, id: i64) -> Result<User> {
         Ok(self
             .db
-            .query_row("SELECT id,username FROM users WHERE id=?", [id], |r| {
+            .query_row("SELECT id,username,(SELECT revision FROM avatars WHERE user=users.id) FROM users WHERE id=?", [id], |r| {
                 Ok(User {
                     id: r.get(0)?,
                     username: r.get(1)?,
+                    avatar: r.get(2)?,
                 })
             })?)
     }
@@ -218,6 +225,7 @@ impl Server {
                 (id, token, expiry)
             }
         };
+        self.uploads.remove(&id);
         let generation = random::<16>();
         let key = random::<32>();
         let user = self.user(id)?;
@@ -239,6 +247,7 @@ impl Server {
                 voice_tick: now(),
                 voice_count: 0,
                 udp_enabled: false,
+                avatar_epoch: 0,
                 overloaded: std::sync::atomic::AtomicBool::new(false),
             },
         );
@@ -270,6 +279,7 @@ impl Server {
             Ok(User {
                 id: r.get(0)?,
                 username: r.get(1)?,
+                avatar: r.get(2)?,
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -284,15 +294,15 @@ impl Server {
             .unwrap_or(false)
     }
     pub fn snapshot(&self, id: i64) -> Result<Snapshot> {
-        let friends=self.users_query("SELECT id,username FROM users WHERE id IN (SELECT CASE WHEN a=?1 THEN b ELSE a END FROM friends WHERE accepted=1 AND (a=?1 OR b=?1)) ORDER BY username",id)?;
-        let incoming=self.users_query("SELECT id,username FROM users WHERE id IN (SELECT a FROM friends WHERE b=?1 AND accepted=0)",id)?;
+        let friends=self.users_query("SELECT id,username,(SELECT revision FROM avatars WHERE user=users.id) FROM users WHERE id IN (SELECT CASE WHEN a=?1 THEN b ELSE a END FROM friends WHERE accepted=1 AND (a=?1 OR b=?1)) ORDER BY username",id)?;
+        let incoming=self.users_query("SELECT id,username,(SELECT revision FROM avatars WHERE user=users.id) FROM users WHERE id IN (SELECT a FROM friends WHERE b=?1 AND accepted=0)",id)?;
         let mut conversations = Vec::new();
         let mut s = self.db.prepare(
             "SELECT conversation FROM members WHERE user=? ORDER BY conversation DESC LIMIT 128",
         )?;
         for c in s.query_map([id], |r| r.get::<_, i64>(0))? {
             let c = c?;
-            conversations.push(Conversation{id:c,users:self.users_query("SELECT id,username FROM users WHERE id IN (SELECT user FROM members WHERE conversation=?) ORDER BY id",c)?});
+            conversations.push(Conversation{id:c,users:self.users_query("SELECT id,username,(SELECT revision FROM avatars WHERE user=users.id) FROM users WHERE id IN (SELECT user FROM members WHERE conversation=?) ORDER BY id",c)?});
         }
         let mut calls = Vec::new();
         for room in self
@@ -333,6 +343,7 @@ impl Server {
         }
     }
     pub fn expire_rejoins(&mut self) {
+        self.expire_avatar_uploads();
         let expired: Vec<_> = self
             .rejoin
             .iter()
@@ -357,6 +368,9 @@ impl Server {
     }
     pub fn disconnect(&mut self, id: i64, g: [u8; 16]) {
         if self.peers.get(&id).is_some_and(|p| p.generation == g) {
+            self.uploads.remove(&id);
+        }
+        if self.peers.get(&id).is_some_and(|p| p.generation == g) {
             self.peers.remove(&id);
             for r in self.rooms.values_mut() {
                 if r.members.remove(&id).is_some() {
@@ -377,7 +391,28 @@ impl Server {
             "Session expired"
         );
         match req {
+            Request::AvatarChunk {
+                total,
+                offset,
+                data,
+            } => {
+                self.avatar_chunk(u, total, offset, data)?;
+                return Ok(());
+            }
+            Request::AvatarGet { user } => {
+                self.avatar_get(u, user)?;
+                return Ok(());
+            }
+            Request::AvatarRemove {} => {
+                if let Some(peer) = self.peers.get_mut(&u) {
+                    peer.avatar_epoch = peer.avatar_epoch.wrapping_add(1);
+                }
+                self.uploads.remove(&u);
+                self.db.execute("DELETE FROM avatars WHERE user=?", [u])?;
+                self.emit(u, Event::AvatarSaved { revision: None });
+            }
             Request::Logout {} => {
+                self.uploads.remove(&u);
                 let token = self.peers[&u].session.clone();
                 self.db
                     .execute("DELETE FROM sessions WHERE token=?", [token])?;
@@ -486,6 +521,7 @@ impl Server {
                             sender: User {
                                 id: r.get(2)?,
                                 username: r.get(3)?,
+                                avatar: None,
                             },
                             timestamp: r.get(4)?,
                             nonce: r.get(5)?,
@@ -578,7 +614,7 @@ impl Server {
                 );
                 ensure!(self.rooms.len() < 128, "Server call limit reached");
                 let id = u64::from_be_bytes(random::<8>()) >> 1;
-                let users=self.users_query("SELECT id,username FROM users WHERE id IN (SELECT user FROM members WHERE conversation=?)",conversation)?;
+                let users=self.users_query("SELECT id,username,(SELECT revision FROM avatars WHERE user=users.id) FROM users WHERE id IN (SELECT user FROM members WHERE conversation=?)",conversation)?;
                 self.rooms.insert(
                     id,
                     Room {

@@ -4,6 +4,8 @@ use windows_sys::Win32::{Foundation::LocalFree, Security::Cryptography::*};
 pub struct Settings {
     pub server: String,
     pub token: Vec<u8>,
+    #[serde(default)]
+    pub preferences: mini_client::preferences::Preferences,
 }
 fn path() -> std::path::PathBuf {
     std::path::PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default())
@@ -66,6 +68,9 @@ impl Settings {
                 .ok_or_else(|| anyhow::anyhow!("Windows could not protect session"))?,
             None => vec![],
         };
+        self.persist()
+    }
+    pub fn persist(&self) -> anyhow::Result<()> {
         let p = path();
         std::fs::create_dir_all(p.parent().unwrap())?;
         let temp = p.with_extension("tmp");

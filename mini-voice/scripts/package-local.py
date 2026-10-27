@@ -25,6 +25,7 @@ for p in sorted(root.rglob('*')):
         source_sums.append(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(root).as_posix()}')
 allowed = {'kernel32.dll', 'ole32.dll', 'oleaut32.dll', 'msvcrt.dll',
            'bcryptprimitives.dll', 'advapi32.dll', 'api-ms-win-core-synch-l1-2-0.dll',
+           'shell32.dll', 'comctl32.dll', 'comdlg32.dll', 'imm32.dll',
            'bcrypt.dll', 'crypt32.dll', 'gdi32.dll', 'ntdll.dll', 'user32.dll', 'ws2_32.dll'}
 for platform in ('windows-x64', 'linux-x64'):
     stage = dist / platform

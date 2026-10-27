@@ -495,6 +495,58 @@ async fn eight_clients_tls_messaging_calls_udp_and_reconnect() {
         .await
         .unwrap();
     client_event(&events,|e|matches!(e,mini_client::network::UiEvent::Server(Event::History{messages,..})if messages.len()==2 && messages[0].text=="over real TLS" && messages[1].text=="retry during interruption")).await;
+    // Real upload channel, chunk protocol, normalized storage and metadata sync.
+    let mut profile = std::io::Cursor::new(Vec::new());
+    image::RgbImage::from_fn(300, 75, |x, y| {
+        image::Rgb([(x * y) as u8, x as u8, y as u8])
+    })
+    .write_to(&mut profile, image::ImageFormat::Png)
+    .unwrap();
+    let profile = profile.into_inner();
+    assert!(profile.len() > AVATAR_CHUNK);
+    bridge.avatars.send(profile).await.unwrap();
+    client_event(&events, |event| {
+        matches!(
+            event,
+            mini_client::network::UiEvent::Server(Event::AvatarSaved { revision: Some(_) })
+        )
+    })
+    .await;
+    event(&mut sockets[0],|event|matches!(event,Event::State{state} if state.calls.iter().any(|call|call.participants.iter().any(|p|p.user.id==ids[2]&&p.user.avatar.is_some())))).await;
+    bridge
+        .requests
+        .send(Request::AvatarGet { user: ids[2] })
+        .await
+        .unwrap();
+    client_event(&events, |event| {
+        if let mini_client::network::UiEvent::Server(Event::Avatar {
+            user,
+            revision: Some(_),
+            data,
+        }) = event
+        {
+            assert_eq!(*user, ids[2]);
+            let normalized = image::load_from_memory(&hex::decode(data).unwrap()).unwrap();
+            assert_eq!((normalized.width(), normalized.height()), (256, 64));
+            true
+        } else {
+            false
+        }
+    })
+    .await;
+    bridge
+        .requests
+        .send(Request::AvatarRemove {})
+        .await
+        .unwrap();
+    client_event(&events, |event| {
+        matches!(
+            event,
+            mini_client::network::UiEvent::Server(Event::AvatarSaved { revision: None })
+        )
+    })
+    .await;
+    event(&mut sockets[0],|event|matches!(event,Event::State{state} if state.calls.iter().any(|call|call.participants.iter().any(|p|p.user.id==ids[2]&&p.user.avatar.is_none())))).await;
     bridge.task.abort();
     proxy_task.abort();
     // A recipient which has no UDP mapping gets real voice bytes over the TLS socket.

@@ -38,7 +38,11 @@ fn wait_until(mut check: impl FnMut() -> bool) {
 }
 #[test]
 fn saved_endpoint_startup_background_restore_and_exit() {
-    let temp = std::env::temp_dir().join(format!("mini-voice-gui-test-{}", std::process::id()));
+    let temp = std::env::temp_dir().join(format!(
+        "mini-voice-gui-test-{}-{:016x}",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
     let settings = temp.join("MiniVoice");
     std::fs::create_dir_all(&settings).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -84,6 +88,43 @@ fn saved_endpoint_startup_background_restore_and_exit() {
         .read_exact(&mut header)
         .expect("actual standalone EXE did not send TLS ClientHello");
     assert_eq!(header[0], 22);
+    // The existing settings file has no preferences: migration must use defaults.
+    unsafe {
+        PostMessageW(search.window, WM_COMMAND, 150, 0);
+    }
+    wait_until(|| unsafe { IsWindowVisible(GetDlgItem(search.window, 153)) } != 0);
+    unsafe {
+        let microphone = GetDlgItem(search.window, 153);
+        let output = GetDlgItem(search.window, 154);
+        assert_eq!(SendMessageW(microphone, WM_USER, 0, 0), 100);
+        assert_eq!(SendMessageW(output, WM_USER, 0, 0), 100);
+        assert!(
+            SendMessageW(GetDlgItem(search.window, 151), CB_GETCOUNT, 0, 0) >= 1,
+            "device combo {:?}, count {}",
+            GetDlgItem(search.window, 151),
+            SendMessageW(GetDlgItem(search.window, 151), CB_GETCOUNT, 0, 0)
+        );
+        SendMessageW(microphone, WM_USER + 5, 1, 150); // TBM_SETPOS
+        PostMessageW(search.window, WM_HSCROLL, 8, microphone as isize); // TB_ENDTRACK
+        SendMessageW(output, WM_USER + 5, 1, 40);
+        PostMessageW(search.window, WM_HSCROLL, 8, output as isize);
+        SendMessageW(GetDlgItem(search.window, 155), BM_SETCHECK, 0, 0);
+        PostMessageW(search.window, WM_COMMAND, 155, 0);
+    }
+    wait_until(|| {
+        std::fs::read(settings.join("settings.json"))
+            .ok()
+            .and_then(|data| serde_json::from_slice::<serde_json::Value>(&data).ok())
+            .is_some_and(|value| {
+                value["preferences"]["microphone"] == 150
+                    && value["preferences"]["master"] == 40
+                    && value["preferences"]["show_avatars"] == false
+            })
+    });
+    unsafe {
+        PostMessageW(search.window, WM_COMMAND, 150, 0);
+    }
+    wait_until(|| unsafe { IsWindowVisible(GetDlgItem(search.window, 153)) } == 0);
     unsafe {
         PostMessageW(search.window, WM_CLOSE, 0, 0);
     }
@@ -112,6 +153,41 @@ fn saved_endpoint_startup_background_restore_and_exit() {
     }
     wait_until(|| child.0.try_wait().unwrap().is_some());
     assert!(child.0.wait().unwrap().success());
+    let mut restarted = Client(
+        Command::new(env!("CARGO_BIN_EXE_mini-client"))
+            .env("LOCALAPPDATA", &temp)
+            .spawn()
+            .unwrap(),
+    );
+    search.pid = restarted.0.id();
+    search.window = std::ptr::null_mut();
+    wait_until(|| {
+        unsafe {
+            EnumWindows(Some(find), &mut search as *mut _ as isize);
+        }
+        !search.window.is_null() && unsafe { IsWindowVisible(search.window) } != 0
+    });
+    unsafe {
+        PostMessageW(search.window, WM_COMMAND, 150, 0);
+    }
+    wait_until(|| unsafe { IsWindowVisible(GetDlgItem(search.window, 153)) } != 0);
+    unsafe {
+        assert_eq!(
+            SendMessageW(GetDlgItem(search.window, 153), WM_USER, 0, 0),
+            150
+        );
+        assert_eq!(
+            SendMessageW(GetDlgItem(search.window, 154), WM_USER, 0, 0),
+            40
+        );
+        assert_eq!(
+            SendMessageW(GetDlgItem(search.window, 155), BM_GETCHECK, 0, 0),
+            0
+        );
+        PostMessageW(search.window, WM_COMMAND, 141, 0);
+    }
+    wait_until(|| restarted.0.try_wait().unwrap().is_some());
+    assert!(restarted.0.wait().unwrap().success());
     let log = std::fs::read_to_string(settings.join("client.log")).unwrap();
     assert!(log.contains("UI ready") && log.contains("normal exit"));
     assert!(!log.contains("panic"));

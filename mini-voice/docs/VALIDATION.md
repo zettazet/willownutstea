@@ -148,3 +148,47 @@ panic hook can still require Windows Event Viewer. Background mode keeps the
 existing event loop/network/audio running; it does not install autostart or a
 Windows service. If Shell refuses a notification icon, the window stays
 accessible on the taskbar; Exit app remains available in the window.
+
+## Audio / Profile and Enter-to-send update
+
+The expanded Linux suite has seventeen tests: five client codec/gain/cache/settings
+checks, the standalone TLS regression, six server account/profile/storage checks, an in-flight-removal race check,
+three protocol/AEAD checks and the real eight-client TLS/UDP integration.
+The integration now uploads through the actual client's bounded avatar channel,
+receives normalized JPEG data, checks another participant's profile revision,
+removes the avatar and verifies the removal synchronizes. Existing history,
+reconnect, message idempotency, mute/deafen and hidden-label tests remain.
+
+The mixer test compares decoded audio from two real Opus speakers and changes
+one person's gain during playback. It checks independent gains, master silence,
+mic zero gain and boosted-sample limiting. Preferences round-trip with defaults
+and server/user-ID scoping. Cache tests enforce the twenty-thumbnail ceiling,
+unchanged-revision reuse, replacement invalidation, immediate clearing when OFF,
+and no decoding of stale or disabled replies. Server tests cover PNG/JPEG/WebP,
+size/dimension rejection, ordered chunks, unrelated-user access denial,
+replacement/removal, database reopen, two-upload bound and expired-buffer cleanup.
+
+On Wine 10/Xvfb, `windows_startup` launches the actual optimized executable with
+legacy settings and a saved TLS endpoint. It now also opens/closes the compact
+panel, checks default device entries, changes microphone/master sliders, turns
+Show Avatars off, saves, restarts and verifies all three preferences. The original
+close/minimize-to-tray, restore and Exit app checks remain. The input-control test
+checks Enter, held-key repeat suppression, Shift+Enter newline and simulated
+IME composition/confirmation. Real IME applications are not exercised by these
+synthetic Windows messages.
+
+The existing DPAPI round-trip test was attempted under Wine and failed because
+`CryptProtectData` returned failure in that compatibility environment. It has not
+been claimed as passing or removed. Native Windows DPAPI, physical capture/
+playback, actual device hotplug/switching, audio latency and Windows RAM/CPU
+comparisons still need a Windows machine. The Windows CI job includes those
+existing automated tests, but remote CI completion has not been verified here.
+No numeric Windows performance improvements are claimed. Thumbnail pixel storage
+has a strict 80 KiB ceiling, excluding transient image decodes and upload buffers.
+
+The known CPAL 0.16 COM-activation unwrap is now preceded by an audio-service
+preflight, so a missing backend does not abort merely when the panel opens.
+No library/framework or runtime thread model was replaced. The only backend
+extension is authenticated, size-bounded avatar operations on the existing TLS
+connection and an additive SQLite table. See CLIENT-UPDATE.md for behavior,
+limits and upgrade instructions.

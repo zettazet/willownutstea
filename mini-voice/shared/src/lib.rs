@@ -9,6 +9,9 @@ pub const MAX_FRAME: usize = 32768;
 /// Includes JSON escaping for a full page of fifty maximum-size messages.
 pub const MAX_EVENT: usize = 512 * 1024;
 pub const MAX_CALL: usize = 8;
+pub const MAX_AVATAR_UPLOAD: usize = 5 * 1024 * 1024;
+pub const AVATAR_CHUNK: usize = 12 * 1024;
+pub const MAX_AVATAR_STORED: usize = 128 * 1024;
 pub const MAX_OPUS: usize = 1275;
 pub const PAGE: usize = 50;
 pub const FRAME: usize = 960;
@@ -65,6 +68,15 @@ pub enum Request {
         deafened: bool,
     },
     Toggle {},
+    AvatarChunk {
+        total: usize,
+        offset: usize,
+        data: String,
+    },
+    AvatarRemove {},
+    AvatarGet {
+        user: i64,
+    },
     VoiceTransport {
         udp: bool,
     },
@@ -73,6 +85,8 @@ pub enum Request {
 pub struct User {
     pub id: i64,
     pub username: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conversation {
@@ -139,6 +153,14 @@ pub enum Event {
     },
     Error {
         message: String,
+    },
+    Avatar {
+        user: i64,
+        revision: Option<String>,
+        data: String,
+    },
+    AvatarSaved {
+        revision: Option<String>,
     },
     LoggedOut,
     Pong,

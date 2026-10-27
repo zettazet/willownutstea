@@ -1,8 +1,5 @@
-Built 2026-10-27T03:44:43.442237+00:00
+Built 2026-10-27T13:31:57.723014+00:00
 Platform: windows-x64; Rust 1.99.1; optimized release, thin LTO.
 Windows builds: GNU cross-compiled, only system DLL imports; not executed on Windows.
 Linux binary requires glibc >= 2.38. No public server is configured.
 See docs/VALIDATION.md for executed checks and remaining acceptance tests.
-Client rebuilt 2026-10-27T08:39:48.108617+00:00 with embedded application/window icon.
-Client rebuilt 2026-10-27T08:50:32.555119+00:00 with standalone TLS crypto backend, tray background mode and startup diagnostics.
-Actual optimized client EXE passed saved-endpoint TLS and GUI hide/restore/minimize/exit smoke test under Wine 10 + Xvfb; native Windows and physical audio remain unverified.

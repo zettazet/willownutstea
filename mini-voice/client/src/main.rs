@@ -6,6 +6,10 @@ mod diagnostics;
 #[cfg(windows)]
 mod gui;
 #[cfg(windows)]
+mod message_input;
+#[cfg(windows)]
+mod profile_ui;
+#[cfg(windows)]
 mod tray;
 #[cfg(windows)]
 use mini_client::network;
