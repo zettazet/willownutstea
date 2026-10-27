@@ -1,0 +1,5 @@
+Built 2026-10-27T02:13:00.702769+00:00
+Platform: windows-x64; Rust 1.99.1; optimized release, thin LTO.
+Windows builds: GNU cross-compiled, only system DLL imports; not executed on Windows.
+Linux binary requires glibc >= 2.38. No public server is configured.
+See docs/VALIDATION.md for executed checks and remaining acceptance tests.
