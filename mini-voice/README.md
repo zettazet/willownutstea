@@ -47,8 +47,8 @@ bash mini-voice/deploy/oracle/install.sh \
 
 ## Windows-клієнт
 
-[Завантажити mini-client.exe](releases/windows-x64/mini-client.exe?raw=1) ·
-[повний портативний ZIP](releases/mini-voice-windows-x64.zip?raw=1)
+[Завантажити mini-client.exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/mini-client.exe) ·
+[повний портативний ZIP](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/mini-voice-windows-x64.zip)
 
 1. Розпакуй ZIP та відкрий `mini-client.exe`.
 2. Введи `wss://твій-домен:4433`, username та пароль → **Register**.
@@ -84,7 +84,7 @@ sudo -u mini-voice /usr/local/bin/mini-server --check-config /etc/mini-voice/ser
 Інші команди: `mini-server server.json`, `mini-server --help`, `mini-server --version`.
 Відносні шляхи в ручному конфігу рахуються від робочої директорії процесу.
 Oracle-інсталятор використовує абсолютні шляхи. Для ручного запуску на Windows
-залишається [mini-server.exe](releases/windows-x64/mini-server.exe?raw=1) із
+залишається [mini-server.exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/mini-server.exe) із
 `server.example.json`; Ubuntu-інсталятор для Windows не призначений.
 
 ## Для розробника

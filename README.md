@@ -3,10 +3,10 @@
 Нативний Windows-застосунок для повідомлень і голосових дзвінків до 8 учасників.
 Сервер — один Rust-процес із SQLite, TLS та зашифрованим UDP; браузер не потрібен.
 
-- [Windows-клієнт .exe](mini-voice/releases/windows-x64/mini-client.exe?raw=1)
-- [Повний Windows ZIP](mini-voice/releases/mini-voice-windows-x64.zip?raw=1)
-- [Linux x86_64 сервер](mini-voice/releases/linux-x64/mini-server?raw=1)
-- [Linux ARM64 сервер для Ampere](mini-voice/releases/linux-arm64/mini-server?raw=1)
+- [Windows-клієнт .exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/mini-client.exe)
+- [Повний Windows ZIP](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/mini-voice-windows-x64.zip)
+- [Linux x86_64 сервер](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/linux-x64/mini-server)
+- [Linux ARM64 сервер для Ampere](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/linux-arm64/mini-server)
 
 **[Як запустити сервер на Oracle Always Free — українська інструкція →](mini-voice/docs/HOSTING.md)**
 
