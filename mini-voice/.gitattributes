@@ -1,0 +1,6 @@
+# Preserve executable/package bytes across platforms.
+releases/**/*.exe binary
+releases/*.zip binary
+# Keep upstream license notices verbatim, including their original whitespace.
+releases/windows-x64/THIRD-PARTY-NOTICES.txt -whitespace
+releases/windows-x64/compiler-notices/*.txt -whitespace
