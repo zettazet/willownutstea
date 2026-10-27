@@ -1,8 +1,9 @@
-use anyhow::{Context, Result};
+mod config;
+use anyhow::Result;
+use config::{Action, Config};
 use futures_util::{SinkExt, StreamExt};
 use mini_server::{now, Out, Server};
 use mini_shared::*;
-use serde::Deserialize;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -17,39 +18,44 @@ use tokio_tungstenite::{
     accept_async_with_config,
     tungstenite::{protocol::WebSocketConfig, Message},
 };
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Config {
-    listen: String,
-    udp_listen: String,
-    database: String,
-    tls_cert: String,
-    tls_key: String,
-}
 fn main() -> Result<()> {
+    let action = config::arguments()?;
+    let (path, check) = match action {
+        Action::Help => {
+            println!("mini-server [server.json]\nmini-server --check-config server.json\nmini-server --version\n\nTLS is mandatory. Relative file paths use the current working directory.");
+            return Ok(());
+        }
+        Action::Version => {
+            println!("mini-server {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Action::Run(p) => (p, false),
+        Action::Check(p) => (p, true),
+    };
+    let (c, tls) = Config::load(&path)?;
+    if check {
+        println!("Configuration and TLS key pair are valid; no sockets or database opened.");
+        return Ok(());
+    }
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .max_blocking_threads(4)
         .enable_all()
         .build()?
-        .block_on(run())
+        .block_on(run(c, tls))
 }
-async fn run() -> Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "server.json".into());
-    let c: Config = serde_json::from_slice(&std::fs::read(path)?)?;
-    let certs = rustls_pemfile::certs(&mut std::io::BufReader::new(std::fs::File::open(
-        &c.tls_cert,
-    )?))
-    .collect::<std::io::Result<Vec<_>>>()?;
-    let key = rustls_pemfile::private_key(&mut std::io::BufReader::new(std::fs::File::open(
-        &c.tls_key,
-    )?))?
-    .context("No TLS private key")?;
-    let tls = tokio_rustls::rustls::ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(certs, key)?;
+async fn shutdown_signal() -> Result<()> {
+    #[cfg(unix)]
+    {
+        let mut terminate =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        tokio::select! {result=tokio::signal::ctrl_c()=>result?,_=terminate.recv()=>{}}
+    }
+    #[cfg(not(unix))]
+    tokio::signal::ctrl_c().await?;
+    Ok(())
+}
+async fn run(c: Config, tls: tokio_rustls::rustls::ServerConfig) -> Result<()> {
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
     let udp = Arc::new(UdpSocket::bind(&c.udp_listen).await?);
     let state = Arc::new(Mutex::new(Server::open(
@@ -115,7 +121,7 @@ async fn run() -> Result<()> {
         HashMap::<std::net::IpAddr, (Instant, u32)>::new(),
     ));
     loop {
-        tokio::select! {_=tokio::signal::ctrl_c()=>break,accept=listener.accept()=>{let(tcp,addr)=accept?;let Ok(permit)=connections.clone().try_acquire_owned() else{continue;};
+        tokio::select! {result=shutdown_signal()=>{result?;break;},accept=listener.accept()=>{let(tcp,addr)=accept?;let Ok(permit)=connections.clone().try_acquire_owned() else{continue;};
         let allowed={let mut a=attempts.lock().unwrap();a.retain(|_,v|v.0.elapsed()<Duration::from_secs(60));let v=a.entry(addr.ip()).or_insert((Instant::now(),0));v.1+=1;v.1<=20};if !allowed{continue;}
         let acceptor=acceptor.clone();let s=state.clone();let udp=udp.clone();let slots=auth_slots.clone();tokio::spawn(async move{let _permit=permit;let result:Result<()>=async{
         let tls=tokio::time::timeout(Duration::from_secs(10),acceptor.accept(tcp)).await??;
@@ -124,6 +130,18 @@ async fn run() -> Result<()> {
         serve(ws,s,udp,slots,addr).await}.await;if let Err(e)=result{eprintln!("Connection {addr}: {e}");}});
         }}
     }
+    let shutdown_state = state.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        let mut state = shutdown_state.lock().unwrap();
+        for peer in state.peers.values() {
+            let _ = peer.tx.try_send(Out::Close);
+        }
+        state.rooms.clear();
+        state.db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        Ok(())
+    })
+    .await??;
+    eprintln!("Server stopped; SQLite checkpoint complete");
     Ok(())
 }
 async fn serve<S>(

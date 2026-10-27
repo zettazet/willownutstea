@@ -1,87 +1,129 @@
 # Mini Voice
 
-A Windows 10/11 x64 native messaging and voice client, with a self-hosted
-Windows/Linux server. No browser, Node, Python, hosted application platform,
-or administrator rights are needed on friends' computers. The existing Next.js
-project outside this directory is unrelated and unchanged.
+Мінімальний клієнт Windows 10/11 x64 та власний сервер повідомлень і голосу.
+Без Electron, браузера, Docker чи hosted application platform. Друзям не потрібні
+Rust, Node.js, Python, Oracle-акаунт або власна VM.
 
-**Status:** implemented and tested on Linux with eight real TLS clients and
-UDP relay; Windows x64 builds are produced by cross-compilation. Windows GUI,
-physical microphone/playback, internet NAT traversal and Windows RAM targets
-require the acceptance checks below before calling this a validated release.
-No public server is provisioned by this repository.
+## Сервер на Oracle Always Free
 
-## Use
+**[Повна інструкція: акаунт → VM → мережа → встановлення → підключення](docs/HOSTING.md)**.
+Цільова система: Ubuntu 24.04 LTS, x86_64 або ARM64. Для обох архітектур є готові
+Linux-бінарники; інсталятор обирає потрібний через `uname -m` і перевіряє SHA-256.
 
-1. The host sets up the server using [deployment instructions](docs/HOSTING.md).
-2. Extract the entire `mini-voice-windows-x64.zip`; open `mini-client.exe`.
-3. Enter `wss://your-hostname:4433`, a username (3–24 ASCII letters, digits,
-   underscore) and a password (10–128 UTF-8 bytes); click **Register**.
-4. Enter your friend's username in the small field on the left; **Add friend**.
-   Your friend selects `Request: username` and clicks **Accept friend**.
-5. Select friends (Ctrl-click for a group), then **New chat**. Select the
-   conversation below the friends list. Type plain text and click **Send**.
-6. **Call** invites the conversation's members; others use **Accept call** or
-   **Decline**. Select friends and **Invite to call** to add participants.
-   Calls allow eight people. During calls the bottom bar contains microphone
-   mute, independent headphone mute, and leave. Use headphones: echo cancellation
-   and noise suppression are not implemented.
+Oracle може вимагати картку для перевірки акаунта навіть для Always Free.
+Якщо картка неприйнятна й реєстрація її вимагає, цей варіант не підійде.
+Статус безкоштовних ресурсів і всі квоти потрібно підтвердити в консолі;
+гарантії безкоштовності чи наявності вільних VM цей репозиторій не дає.
 
-The server address is saved in `%LOCALAPPDATA%\MiniVoice\settings.json`.
-The session token is protected by Windows DPAPI for the current Windows user.
-Passwords are never saved. **Log out** revokes the current session. Sessions
-expire after 30 days; one live client per account is supported. Signing in
-elsewhere disconnects the older client. Pending messages are bounded and
-retried with stable IDs during the same process lifetime; they are not saved
-to disk and are lost if the client exits before acknowledgement. The status
-line reports delivery, connection and server validation errors.
+Після створення VM, DNS A-запису та правил Oracle NSG/Security List,
+**у консолі Ubuntu VM**, не у Windows PowerShell:
 
-## Build
+```bash
+sudo apt-get update
+sudo apt-get install -y git ca-certificates
+git clone --branch main --single-branch https://github.com/zettazet/willownutstea.git
+cd willownutstea
+# Додати правила лише для Mini Voice у брандмауері VM; існуючий SSH не видаляється.
+sudo bash mini-voice/deploy/oracle/open-firewall.sh --apply
+sudo bash mini-voice/deploy/oracle/install.sh \
+  --domain voice.example.org --email you@example.org
+```
 
-Developers need Rust (tested with 1.99.1), CMake and a C/C++ toolchain.
-Packaging also uses Python 3.11+ to collect third-party license notices.
-SQLite and Opus sources are built automatically; friends need no compiler.
-Cargo.lock pins Rust dependencies. Bundled Opus 1.3.x needs the CMake
-compatibility setting below with CMake 4; checksum verification stays enabled.
+**Заміни домен та email на свої.** TCP 80 потрібен для сертифіката/поновлення,
+TCP 4433 — для клієнтів, UDP 4434 — для голосу. Домен має вказувати на публічну
+IPv4 цієї VM. Потрібен свій hostname: власний домен/піддомен або безкоштовний
+DDNS hostname, якщо сервіс його надає. Купівля домену не є вимогою програми.
 
-Windows: open a Visual Studio 2022 x64 Native Tools terminal with the Desktop
-C++ workload and Windows SDK, install Rust's MSVC toolchain and CMake, then:
+Інсталятор встановлює службу `mini-voice` від окремого користувача, Certbot та
+aвтопоновлення TLS. База лежить у `/var/lib/mini-voice/`, поза checkout, і не
+видаляється при оновленні виконуваного файла. Після виходу з SSH сервер працює.
+
+План без змін системи:
+
+```bash
+bash mini-voice/deploy/oracle/install.sh \
+  --domain voice.example.org --email you@example.org --dry-run
+```
+
+## Windows-клієнт
+
+[Завантажити mini-client.exe](releases/windows-x64/mini-client.exe?raw=1) ·
+[повний портативний ZIP](releases/mini-voice-windows-x64.zip?raw=1)
+
+1. Розпакуй ZIP та відкрий `mini-client.exe`.
+2. Введи `wss://твій-домен:4433`, username та пароль → **Register**.
+   Username: 3–24 ASCII літери/цифри/`_`; пароль: 10–128 UTF-8 байтів.
+3. Username друга → **Add friend**; друг приймає **Accept friend**.
+4. Вибери друга → **New chat**, відкрий розмову та натискай **Send**.
+   Для групи вибери друзів через Ctrl-клік.
+5. **Call** → інші натискають **Accept call** / **Decline**.
+   Вибраних друзів можна додати через **Invite to call**. Максимум — 8 учасників.
+6. У виклику: mute мікрофона, незалежний deafen та вихід. Використовуй навушники:
+   echo cancellation і noise suppression не реалізовані.
+
+Друзі вводять одну адресу сервера. На їхніх роутерах порти відкривати не потрібно.
+Адреса й DPAPI-захищений токен зберігаються в `%LOCALAPPDATA%\MiniVoice\settings.json`.
+Паролі на диск клієнта не записуються. Сесії діють 30 днів; один акаунт має
+одне активне підключення. Онлайн **Log out** відкликає поточну сесію; офлайн-вихід
+прибирає локальний токен, але не може негайно відкликати його на сервері.
+Черга непідтверджених повідомлень не зберігається при закритті процесу.
+
+## Керування Linux-сервером
+
+```bash
+sudo systemctl status mini-voice --no-pager
+sudo journalctl -u mini-voice -n 80 --no-pager
+sudo -u mini-voice /usr/local/bin/mini-server --check-config /etc/mini-voice/server.json
+```
+
+`--check-config` перевіряє JSON, адреси та TLS-пару без відкриття бази/портів;
+не перевіряє CA-довіру, строк сертифіката, DNS чи дзвінок. Сервер приймає SIGTERM
+від `systemd`, завершує операції SQLite й виконує WAL checkpoint. Перезапуск
+завершує активні дзвінки; акаунти й історія зберігаються.
+
+Інші команди: `mini-server server.json`, `mini-server --help`, `mini-server --version`.
+Відносні шляхи в ручному конфігу рахуються від робочої директорії процесу.
+Oracle-інсталятор використовує абсолютні шляхи. Для ручного запуску на Windows
+залишається [mini-server.exe](releases/windows-x64/mini-server.exe?raw=1) із
+`server.example.json`; Ubuntu-інсталятор для Windows не призначений.
+
+## Для розробника
+
+Rust 1.99.1 зафіксовано в `rust-toolchain.toml`; потрібні C/C++ toolchain і CMake.
+SQLite та Opus будуються із джерел залежностей. Для CMake 4:
+
+```bash
+cd mini-voice
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
+cargo test --locked --workspace
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo build --locked --release -p mini-server
+python3 -m unittest discover -s tests/deployment -v
+shellcheck deploy/oracle/*.sh
+```
+
+Нативна збірка на ARM64 використовує ті самі команди. Інсталятору можна передати
+власний довірений build: `--binary /absolute/path/to/mini-server`; контроль
+походження такого файла — на операторі. Для плану іншої архітектури можна
+вказати `--arch arm64 --dry-run`; реальна інсталяція відхилить архітектуру,
+що не відповідає VM.
+
+Windows: Visual Studio x64 Native Tools, Desktop C++/Windows SDK, Rust MSVC,
+CMake й Python 3.11+ для ліцензій. У PowerShell із `mini-voice`:
 
 ```powershell
-cd mini-voice
 $env:CMAKE_POLICY_VERSION_MINIMUM = '3.5'
 cargo test --locked --workspace
 powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 ```
 
-The packaging script builds optimized MSVC executables and produces a portable
-ZIP. No installer or autostart service is required. If MSVC reports a missing
-runtime on a clean machine, install Microsoft's x64 Visual C++ 2015–2022
-redistributable; GNU cross-builds instead include their required runtime DLLs.
-Unsigned downloads may trigger Windows reputation prompts. We do not disable
-SmartScreen; a release publisher can sign executables with their own certificate.
+## Перевірки та межі
 
-Linux server (GCC/Clang, CMake, make):
+Автоматичні Linux-тести перевіряють TLS/UDP, Opus, 8 клієнтів, історію,
+перепідключення, конфігурацію й завершення SIGTERM. Окремо перевіряються
+інсталятор та unit-файл. Це не доказ живого розгортання в Oracle чи ACME-renewal.
+Windows GUI/фізичне аудіо та цілі <50 MiB idle / <100 MiB у дзвінку невиміряні.
+Сервер читає повідомлення й голос: end-to-end encryption не заявлено.
 
-```sh
-cd mini-voice
-export CMAKE_POLICY_VERSION_MINIMUM=3.5
-cargo test --locked --workspace
-cargo build --locked --release -p mini-server
-./target/release/mini-server server.json
-```
-
-The Linux client executable only explains that the GUI targets Windows; it is
-not a Linux desktop client. Server-only builds do not need Opus or audio devices.
-
-## Engineering and validation
-
-[Architecture/security](docs/ARCHITECTURE.md) · [Deployment](docs/HOSTING.md) ·
-[Tests and Windows acceptance](docs/VALIDATION.md) ·
-[Implementation review](docs/REVIEW.md) ·
-[Repeatable resource measurements](docs/BENCHMARKS.md)
-
-RAM goals are **under 50 MiB idle / under 100 MiB calling**, not measured claims.
-The client uses Win32 controls and system fonts, two Tokio workers, bounded
-network/audio queues, 50-message history pages and a 200-message display cache.
-Audio streams and codecs are released on leaving a call. No analytics or telemetry.
+[Архітектура](docs/ARCHITECTURE.md) · [Перевірки](docs/VALIDATION.md) ·
+[Вимірювання](docs/BENCHMARKS.md)

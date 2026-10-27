@@ -12,6 +12,12 @@ use tokio::{
 };
 use tokio_rustls::rustls;
 use tokio_tungstenite::{tungstenite::Message, Connector, MaybeTlsStream, WebSocketStream};
+fn server_command() -> Command {
+    Command::new(
+        std::env::var_os("MINIVOICE_TEST_SERVER")
+            .unwrap_or_else(|| env!("CARGO_BIN_EXE_mini-server").into()),
+    )
+}
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 struct Process(Child);
 impl Drop for Process {
@@ -63,8 +69,29 @@ async fn eight_clients_tls_messaging_calls_udp_and_reconnect() {
     drop(sock);
     let cfg = serde_json::json!({"listen":format!("127.0.0.1:{port}"),"udp_listen":format!("127.0.0.1:{udp_port}"),"database":"db.sqlite","tls_cert":"cert.pem","tls_key":"key.pem"});
     std::fs::write(dir.path().join("server.json"), cfg.to_string()).unwrap();
+    let checked = server_command()
+        .args(["--check-config", "server.json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert!(!dir.path().join("db.sqlite").exists());
+    let mut invalid = cfg.clone();
+    invalid["listen"] = serde_json::json!("not-an-address");
+    std::fs::write(dir.path().join("invalid.json"), invalid.to_string()).unwrap();
+    let checked = server_command()
+        .args(["--check-config", "invalid.json"])
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(!checked.status.success());
+    assert!(String::from_utf8_lossy(&checked.stderr).contains("listen must be an IP:port"));
     let mut child = Process(
-        Command::new(env!("CARGO_BIN_EXE_mini-server"))
+        server_command()
             .arg("server.json")
             .current_dir(dir.path())
             .stdout(Stdio::null())
@@ -489,6 +516,37 @@ async fn eight_clients_tls_messaging_calls_udp_and_reconnect() {
     })
     .await
     .unwrap();
+    #[cfg(unix)]
+    {
+        assert!(Command::new("kill")
+            .args(["-TERM", &child.0.id().to_string()])
+            .status()
+            .unwrap()
+            .success());
+        let status = timeout(Duration::from_secs(10), async {
+            loop {
+                if let Some(status) = child.0.try_wait().unwrap() {
+                    break status;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(status.success(), "SIGTERM must exit cleanly");
+        let db = rusqlite::Connection::open(dir.path().join("db.sqlite")).unwrap();
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM messages", [], |r| r
+                .get::<_, usize>(0))
+                .unwrap(),
+            PAGE + 2
+        );
+        assert_eq!(
+            db.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+    }
 }
 
 async fn client_event(

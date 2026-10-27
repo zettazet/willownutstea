@@ -8,6 +8,7 @@ try {
     New-Item -ItemType Directory -Force -Path $dir|Out-Null
     Copy-Item target/release/mini-client.exe,target/release/mini-server.exe,server.example.json,LICENSE,README.md $dir
     Copy-Item docs $dir -Recurse -Force
+    Copy-Item docs/PORTABLE-WINDOWS.md (Join-Path $dir 'README.md') -Force
     Copy-Item scripts/benchmark.ps1 $dir
     python scripts/notices.py (Join-Path $dir 'THIRD-PARTY-NOTICES.txt')
     if ($LASTEXITCODE -ne 0) { throw 'License notice collection needs review' }

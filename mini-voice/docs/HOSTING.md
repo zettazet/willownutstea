@@ -1,94 +1,256 @@
-# Host a server
+# Oracle Always Free: встановлення Mini Voice
 
-Friends need a reachable host: a small Linux VPS, Windows computer or home PC.
-No hosted application platform or Docker is required. A commercial domain or
-VPS is optional; an existing hostname and reachable home connection can work.
-The server is a normal process and does not install background services.
+Ціль: **Ubuntu 24.04 LTS** на Oracle Compute VM, x86_64 або ARM64.
+Сервер працює постійно як служба; домашній ПК тримати ввімкненим не потрібно.
+Ця інструкція не створює Oracle-акаунт/VM і не використовує хмарних API-токенів.
 
-## TLS
+## 1. Спочатку перевір реєстрацію та вартість
 
-Use a hostname pointing to the server's public IP. Obtain a public CA certificate
-with an ACME client (for example Certbot on Linux, win-acme on Windows). With
-Certbot's standalone HTTP challenge, temporarily allow inbound TCP 80 and run
-`certbot certonly --standalone -d voice.example.org`. DNS-01 is an alternative
-when port 80 is unavailable. Follow the CA client's instructions for renewal.
+Oracle може вимагати банківську картку для перевірки особи/акаунта та тимчасове
+блокування коштів. **Якщо потрібен варіант суворо без картки й Oracle її просить,
+зупини реєстрацію: встановлення сервера не обходить вимоги провайдера.**
 
-Copy the complete certificate chain and private key to readable files for the
-server's dedicated unprivileged account; restrict private-key permissions
-(`chmod 600 privkey.pem` on Linux, equivalent user-only NTFS ACL on Windows).
-Keep the server data directory private (`chmod 700` on Linux).
-Use `fullchain.pem`, not only the leaf certificate. Never send the private key
-to friends or commit it. After certificate renewal, restart the server to load
-the new files. An external process manager may do this; active calls then end.
+У своєму акаунті перевір:
 
-For a private CA, explicitly install its CA certificate in each friend's
-Windows **Current User → Trusted Root Certification Authorities** store, after
-verifying its fingerprint out of band. The hostname must still match the
-certificate SAN. The client never ignores invalid certificates. Public CA
-certificates avoid this manual installation.
+- ресурси мають саме **Always Free eligible**, а не лише оплату з trial-кредиту;
+- обрана shape, RAM/OCPU, boot volume і мережевий трафік входять у доступні квоти;
+- потрібний публічний IPv4 та інші додані опції не створюють витрат;
+- поточні правила малоактивних VM, строків/лімітів і доступності у твоєму регіоні.
 
-## Configure and start
+Не переходь на Pay As You Go заради отримання відсутньої безкоштовної shape,
+якщо твоя вимога — не витрачати кошти. Budget alerts не слід вважати гарантованим
+автоматичним обмеженням оплати. Відсутність вільної Always Free VM — причина
+відкласти встановлення, а не створити платну машину.
 
-The supplied Linux x64 binary requires glibc 2.38 or newer (for example Debian
-13 or Ubuntu 24.04). Build from source on older hosts. The Windows binaries
-require Windows 10/11 x64.
+Офіційні сторінки:
+[Oracle Free](https://www.oracle.com/cloud/free/),
+[Always Free resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm).
+Доступ до цих сторінок із нашого build-середовища повертав 403, тому тут немає
+непідтверджених фіксованих сум кредиту чи обіцянок кількості безкоштовних ядер/GB.
 
-Copy `server.example.json` to `server.json` beside the server executable.
-Edit database and certificate paths (relative paths resolve from the working
-directory). Keep UDP's advertised port identical to the externally forwarded
-UDP port. Start from that directory:
+## 2. Створи Compute VM
 
-```sh
-./mini-server server.json
+В Oracle Cloud Console: **Compute → Instances → Create instance**.
+
+- Image: **Ubuntu 24.04 LTS**; не Oracle Linux для цього інсталятора.
+- Shape: лише доступна тобі Always Free eligible.
+  Приклади назв, якщо їх пропонує поточний офер: `VM.Standard.A1.Flex` — ARM64,
+  `VM.Standard.E2.1.Micro` — x86_64. Самої назви недостатньо: перевір позначку/квоти.
+- Розмір: невелика VM, наприклад 1 CPU та 1–2 GiB RAM, якщо це дозволено квотою.
+  Це початковий вибір, не навантажувальний benchmark.
+- Boot volume: достатній мінімум для Ubuntu в межах безкоштовної квоти.
+  Не додавай необов'язкові платні диски/бекапи.
+- Networking: public subnet, public IPv4, маршрут `0.0.0.0/0` через Internet Gateway.
+- SSH: додай публічний ключ або збережи приватний ключ, якщо його генерує Oracle.
+
+Приватний ключ залишається на твоєму ПК, не в репозиторії й не в чаті.
+Для Ubuntu звичайний користувач — **ubuntu**. Запиши публічну IPv4 машини.
+Інсталятор автоматично обере потрібний готовий бінарник, Rust на VM не потрібен.
+
+## 3. Налаштуй Oracle ingress і брандмауер Ubuntu
+
+Є **два незалежні рівні**, які повинні дозволяти підключення:
+
+1. Oracle **Network Security Group**, прикріплена до VNIC, або **Security List**
+   відповідної підмережі.
+2. Брандмауер у самій Ubuntu; в OCI-образах може бути фінальне правило REJECT,
+   навіть якщо правила в консолі вже додані.
+
+У NSG/Security List додай **stateful ingress**:
+
+| Протокол | Destination port | Source CIDR | Призначення |
+|---|---:|---|---|
+| TCP | 22 | твоя IP/32 | SSH, зберегти чинний доступ |
+| TCP | 80 | `0.0.0.0/0` | видача й поновлення TLS через HTTP-01 |
+| TCP | 4433 | `0.0.0.0/0` | вхід, повідомлення, TLS WebSocket |
+| UDP | 4434 | `0.0.0.0/0` | голос |
+
+**Source port range залиш All**, заповнюй саме destination port.
+NSG має бути прикріплена до цієї VM. Залиш вихідний доступ для DNS, apt та ACME;
+простий початковий варіант — стандартний allow-all egress.
+SSH не закривай до перевірки альтернативного console-доступу.
+
+Пізніше підготовлений `open-firewall.sh --apply` додасть лише 80/TCP, 4433/TCP,
+4434/UDP у активний UFW або перед REJECT у iptables, зберігаючи інші правила.
+Він не скидає firewall, не переписує SSH і не змінює Oracle NSG/Security List.
+Для iptables ставить `iptables-persistent` і зберігає поточний ruleset.
+
+## 4. DNS та SSH
+
+Створи DNS **A**-запис, наприклад `voice.your-domain.net` → IPv4 цієї VM.
+Можна використати наявний домен/піддомен або безкоштовний DDNS hostname, якщо
+провайдер його надає. Платний домен не є вимогою застосунку.
+CDN/proxy вимкни (у Cloudflare — **DNS only**). AAAA не додавай, поки сервер
+слухає лише IPv4. Якщо IP зміниться, онови DNS.
+
+У **PowerShell на своєму Windows-ПК**, замінивши файл ключа та IP:
+
+```powershell
+ssh -i "$env:USERPROFILE\Downloads\oracle.key" ubuntu@203.0.113.10
 ```
 
-Windows PowerShell: `./mini-server.exe server.json`. Friends connect to
-`wss://voice.example.org:4433` and register their own accounts.
-Allow inbound **TCP 4433 and UDP 4434** in the host firewall. Ordinary use of
-the client needs neither elevation nor inbound firewall rules. Firewall changes
-on a server may require administrative privileges.
+Це приклади, не готовий ключ чи адреса сервера. Якщо потрібний SSH-ключ уже
+налаштовано стандартно, достатньо `ssh ubuntu@ТВОЯ_IP`.
+**Усі наступні bash-команди виконуються в Ubuntu VM**, не в Windows PowerShell.
 
-## Home hosting
+## 5. Клонуй main і запусти встановлення
 
-Reserve the host's LAN IP in the router. Forward external TCP 4433 → host TCP
-4433 and UDP 4434 → host UDP 4434. Keep the advertised UDP port the same. Add a
-DNS A record for the WAN IPv4 address; update it with dynamic DNS if it changes.
-If publishing AAAA too, ensure IPv6 connectivity/listening/firewall works;
-otherwise omit the AAAA record. Test with a friend on a different network or
-cellular data, not only your own Wi-Fi (NAT loopback may not work).
+```bash
+sudo apt-get update
+sudo apt-get install -y git ca-certificates
+git clone --branch main --single-branch https://github.com/zettazet/willownutstea.git
+cd willownutstea
+getent ahostsv4 voice.your-domain.net
+```
 
-CGNAT/double NAT can prevent incoming connections even with router rules. Ask
-the ISP for a public address, forward through both routers when you own them,
-or use a VPS. The application does not tunnel through CGNAT. Do not disable
-TLS to work around hostname/certificate errors. If UDP is blocked, messaging
-and voice over TLS should still work, with potentially higher call latency.
+Остання команда має показати публічну IPv4 цієї VM. Виправ DNS до продовження.
+Для приватного репозиторію потрібен read-only deploy key; не вставляй приватні
+токени в URL Git і не коміть ключі.
 
-## Small VPS
+Подивитися план без змін системи:
 
-Create an unprivileged `mini-voice` user, copy the Linux binary and configuration
-into a directory owned by it, issue a certificate and open the two ports in
-both cloud and OS firewalls. A 512 MiB–1 GiB VPS is a reasonable starting point
-for a private group, not a measured capacity promise. Argon2 login bursts use
-roughly 19 MiB per concurrent hash (at most two), beyond idle server usage.
+```bash
+bash mini-voice/deploy/oracle/open-firewall.sh --dry-run
+bash mini-voice/deploy/oracle/install.sh \
+  --domain voice.your-domain.net --email your-email@example.net --dry-run
+```
 
-For optional systemd supervision, use an ordinary service with
-`User=mini-voice`, `WorkingDirectory=/opt/mini-voice`,
-`ExecStart=/opt/mini-voice/mini-server /opt/mini-voice/server.json`,
-`Restart=on-failure`, `NoNewPrivileges=true`. Check file ownership and permissions.
-No container is needed. Avoid exposing any database or private key through a
-web server.
+Потім установити, **замінивши домен і email на свої**:
 
-Back up using SQLite's online backup API/CLI `.backup` command, or stop the
-server and copy the database together with any WAL/SHM files. Do not copy only
-the main database while WAL writes are active. Monitor free disk space; chat
-history has no automatic retention policy. Restore into a stopped server.
+```bash
+sudo bash mini-voice/deploy/oracle/open-firewall.sh --apply
+sudo bash mini-voice/deploy/oracle/install.sh \
+  --domain voice.your-domain.net --email your-email@example.net
+```
 
-## Acceptance across the internet
+Інсталятор перевіряє checksum бінарника, ставить Certbot/SQLite CLI/OpenSSL,
+створює окремого користувача `mini-voice`, постійні каталоги, службу `systemd`,
+TLS та поновлення сертифіката. API-токен Oracle не потрібен.
+TCP 80 на VM має бути вільний для Certbot standalone. Якщо там уже web-сервер,
+не зупиняй його навмання: налаштуй ACME webroot/DNS-01 вручну або використай
+окрему VM. Не вимикай TLS і не встановлюй вигадані сертифікати для обходу помилок.
 
-Register two distinct accounts on separate networks; accept a friend request;
-exchange messages; restart both clients and verify history/session restore;
-call in both directions. Test eight users, simultaneous speakers, independent
-mute/deafen, then block UDP temporarily and confirm TLS voice fallback. Unblock
-UDP and confirm recovery. Interrupt one client's internet briefly and confirm
-call rejoin while the other stays connected. Repeat with headphones and a USB
-audio device disconnection. LAN-only tests do not establish these outcomes.
+Сервер після інсталяції не працює як root. База поза checkout, оновлення її
+не видаляє. Повторний запуск із тим самим доменом/стандартним конфігом підтримано;
+змінений або невідомий конфіг інсталятор не перезаписує.
+Власний довірений build передається через `--binary /absolute/path/to/mini-server`;
+за походження й архітектуру custom build відповідає оператор.
+
+## 6. Перевір службу, TLS і клієнт
+
+```bash
+sudo systemctl status mini-voice --no-pager
+sudo journalctl -u mini-voice -n 80 --no-pager
+sudo -u mini-voice /usr/local/bin/mini-server --check-config /etc/mini-voice/server.json
+```
+
+Очікується `active (running)`. Перевірка конфігу не відкриває базу/порти та
+не доводить доступність із інтернету чи дійсність домену. Для зовнішнього TLS
+на машині з OpenSSL:
+
+```bash
+openssl s_client -connect voice.your-domain.net:4433 \
+  -servername voice.your-domain.net -verify_hostname voice.your-domain.net \
+  -verify_return_error </dev/null
+```
+
+У Windows-клієнті кожен вводить:
+
+```text
+wss://voice.your-domain.net:4433
+```
+
+Друзі відкривають [mini-client.exe](../releases/windows-x64/mini-client.exe?raw=1)
+або [портативний ZIP](../releases/mini-voice-windows-x64.zip?raw=1), реєструють
+окремі акаунти (**Register**), додають друзів (**Add friend / Accept friend**),
+створюють **New chat** та виклики **Call / Accept call**. Друзям не потрібен Oracle.
+
+Перевір удвох із різних мереж: повідомлення, перезапуск клієнта з історією,
+реальний звук, mute/deafen та короткий обрив інтернету. Потім — груповий дзвінок.
+При блокуванні UDP клієнт має перейти на голос через TLS, із можливою більшою
+затримкою. Хмарний сервер не виправляє обриви останньої ділянки інтернету учасника.
+
+## 7. Керування й TLS renewal
+
+| Шлях | Що зберігається |
+|---|---|
+| `/usr/local/bin/mini-server` | виконуваний файл |
+| `/etc/mini-voice/server.json` | конфіг, абсолютні шляхи |
+| `/etc/mini-voice/tls/` | сертифікат і приватний ключ із правами 0640 |
+| `/etc/letsencrypt/` | Certbot і renewal-конфіг |
+| `/var/lib/mini-voice/mini-voice.sqlite` | акаунти, сесії, друзі, повідомлення |
+| `/etc/systemd/system/mini-voice.service` | автозапуск і sandbox служби |
+
+```bash
+sudo systemctl restart mini-voice
+sudo systemctl stop mini-voice
+sudo systemctl start mini-voice
+sudo journalctl -u mini-voice -f
+sudo systemctl list-timers certbot.timer
+sudo certbot renew --dry-run
+```
+
+SIGTERM від `systemd` обробляється штатно, SQLite робить checkpoint. Перезапуск
+сервера завершує поточні виклики, але зберігає акаунти/історію.
+`certbot.timer` автоматично перевіряє поновлення. Після успішної видачі deploy hook
+копіює ключ/chain, перевіряє їх від імені сервісного користувача й перезапускає
+сервер. TCP 80 має залишатися відкритим для HTTP-01. Звичайний `renew --dry-run`
+перевіряє ACME, але не є доказом реального deploy hook/поновлення.
+
+Служба має `MemoryMax=256M`: це захисний ліміт, не виміряне споживання RAM.
+Для власних лімітів використовуй `sudo systemctl edit mini-voice`, а не редагуй
+керований unit напряму. Перевищення ліміту може завершити процес і виклики.
+
+## 8. Оновлення та резервні копії
+
+У тому самому checkout на VM:
+
+```bash
+git pull --ff-only origin main
+sudo bash mini-voice/deploy/oracle/install.sh \
+  --domain voice.your-domain.net --email your-email@example.net
+```
+
+Служба перезапуститься. База залишається в `/var/lib/mini-voice/`; попередній
+бінарник копіюється в `/usr/local/bin/mini-server.previous`. Спершу збережи backup.
+Для узгодженої онлайн-копії SQLite з WAL:
+
+```bash
+sudo install -d -m 0700 /var/backups/mini-voice
+sudo sqlite3 /var/lib/mini-voice/mini-voice.sqlite \
+  ".backup '/var/backups/mini-voice/backup-$(date -u +%Y%m%dT%H%M%SZ).sqlite'"
+```
+
+Каталог backup доступний лише root. Для завантаження спочатку зроби окрему
+копію для користувача `ubuntu` (заміни `ІМЯ.sqlite` на фактичне ім'я):
+
+```bash
+sudo install -o ubuntu -g ubuntu -m 0600 \
+  /var/backups/mini-voice/ІМЯ.sqlite /home/ubuntu/ІМЯ.sqlite
+```
+
+Потім завантаж `/home/ubuntu/ІМЯ.sqlite` через SCP/SFTP своїм SSH-ключем;
+зберігай її приватно й прибери тимчасову копію з home після завантаження.
+Не копіюй лише `.sqlite` під час запису
+та не вважай backup на тій самій VM захистом від її видалення/вилучення.
+Для відновлення зупини службу, збережи старі файли та віднови копію з власником
+`mini-voice` і правами 0600. Не видаляй VM/boot volume до отримання копії даних.
+Немає гарантії безстрокового збереження Oracle малоактивної безкоштовної VM;
+перевір чинні правила, не імітуй навантаження заради їх обходу.
+
+## Якщо не працює
+
+- **Картка обов'язкова:** застосунок цього не обходить; обирай інший хостинг.
+- **Out of capacity / немає Always Free:** не переходь на платну shape, якщо бюджет 0.
+- **Exec format error:** невірна архітектура; `uname -m`, x64 ≠ ARM64.
+- **ACME challenge failed:** перевір A/відсутність зайвого AAAA, TCP 80 на обох
+  рівнях firewall, маршрут через Internet Gateway і відсутність іншого web-сервера.
+- **Клієнт не підключається:** `wss://...:4433`, DNS only, NSG і OS firewall,
+  сертифікат для того самого імені. Не вводь лише IP із доменним сертифікатом.
+- **Повідомлення є, голос нестабільний:** UDP 4434, навушники, пристрої, TLS fallback.
+- **Служба впала:** `sudo journalctl -u mini-voice -n 100 --no-pager`.
+- **Після renewal/оновлення завершився дзвінок:** перезапуск завершує transient calls;
+  створи новий виклик.
+
+Реальну Oracle VM, її NSG, ACME та поновлення не перевірено в build-середовищі.
+[VALIDATION.md](VALIDATION.md) описує виконані перевірки й решту acceptance-тестів.

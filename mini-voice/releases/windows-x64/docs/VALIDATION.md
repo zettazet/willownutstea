@@ -76,3 +76,42 @@ packaging path was executed locally.
 The protocol is functional but custom and unaudited. The server can read text
 and voice. No end-to-end encryption, echo cancellation, password recovery,
 background auto-update or signed installer is claimed.
+
+
+## Oracle deployment update — 2026-10-27
+
+The server now supports `--check-config` without opening a database/listener,
+readable startup errors, and SIGTERM with an SQLite WAL checkpoint. The existing
+real-network integration test checks valid/invalid configuration, no DB creation
+during validation, clean SIGTERM exit and persisted database integrity.
+
+Additional local verification:
+
+- Six Python deployment tests: Bash syntax/help, both ELF architectures and
+  SHA-256 manifests, non-mutating plans, invalid argument rejection, corrupted
+  bundle rejection, firewall plan, JSON paths and the actual systemd directives.
+  systemd-analyze verifies a temporary unit with local executable paths; it
+  does not start systemd or install anything on the build host.
+- ShellCheck for all `deploy/oracle/*.sh` scripts.
+- Optimized x86_64 and aarch64 GNU/Linux builds. The ARM executable also runs the
+  actual eight-client TLS/UDP integration test under QEMU user-mode, including
+  session/call recovery and SQLite shutdown. Emulation is not an Oracle VM test
+  or a performance measurement. `MINIVOICE_TEST_SERVER` can select a trusted
+  wrapper executable when reproducing this integration check.
+
+Commands from `mini-voice`:
+
+```sh
+python3 -m unittest discover -s tests/deployment -v
+shellcheck deploy/oracle/*.sh
+cargo test --locked --release --workspace
+# Optional trusted wrapper which execs qemu-aarch64 -L SYSROOT ARM_SERVER "$@":
+MINIVOICE_TEST_SERVER=/path/to/arm-server-wrapper cargo test --locked --release -p mini-server --test network
+```
+
+Not performed: Oracle account signup/billing eligibility, actual VM creation,
+Oracle ingress and guest-firewall mutation, root installation on Ubuntu 24.04,
+public ACME issuance/renewal or external internet call quality. The installer
+is prepared and locally checked, not deployed. Verify those steps using
+HOSTING.md before considering a hosted server ready. Oracle may require a
+payment card even for free resources; this project provides no workaround.

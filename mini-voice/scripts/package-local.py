@@ -21,7 +21,7 @@ args = parser.parse_args()
 dist = root / 'dist'
 source_sums = []
 for p in sorted(root.rglob('*')):
-    if p.is_file() and not any(x in ('target', 'dist', '__pycache__') for x in p.relative_to(root).parts):
+    if p.is_file() and not any(x in ('target', 'dist', 'releases', '__pycache__') for x in p.relative_to(root).parts):
         source_sums.append(f'{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(root).as_posix()}')
 allowed = {'kernel32.dll', 'ole32.dll', 'oleaut32.dll', 'msvcrt.dll',
            'bcryptprimitives.dll', 'advapi32.dll', 'api-ms-win-core-synch-l1-2-0.dll',
@@ -45,6 +45,8 @@ for platform in ('windows-x64', 'linux-x64'):
     for name in ('README.md', 'LICENSE', 'server.example.json'):
         shutil.copy2(root / name, stage / name)
     shutil.copytree(root / 'docs', stage / 'docs', dirs_exist_ok=True)
+    if platform.startswith('windows'):
+        shutil.copy2(root / 'docs/PORTABLE-WINDOWS.md', stage / 'README.md')
     if platform.startswith('windows'):
         shutil.copy2(root / 'scripts/benchmark.ps1', stage / 'benchmark.ps1')
         license_dir = stage / 'compiler-notices'

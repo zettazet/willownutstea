@@ -1,0 +1,38 @@
+[Unit]
+Description=Mini Voice messaging and UDP voice relay
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=mini-voice
+Group=mini-voice
+WorkingDirectory=/var/lib/mini-voice
+ExecStartPre=/usr/local/bin/mini-server --check-config /etc/mini-voice/server.json
+ExecStart=/usr/local/bin/mini-server /etc/mini-voice/server.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+StateDirectory=mini-voice
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ReadWritePaths=/var/lib/mini-voice
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LockPersonality=true
+LimitNOFILE=1024
+TasksMax=32
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

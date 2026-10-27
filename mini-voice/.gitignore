@@ -6,3 +6,6 @@
 server.json
 *.pem
 benchmarks*.csv
+
+# Python deployment test caches
+__pycache__/

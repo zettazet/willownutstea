@@ -4,3 +4,8 @@ releases/*.zip binary
 # Keep upstream license notices verbatim, including their original whitespace.
 releases/windows-x64/THIRD-PARTY-NOTICES.txt -whitespace
 releases/windows-x64/compiler-notices/*.txt -whitespace
+
+# Linux cloud server binaries must also retain exact bytes.
+releases/linux-x64/mini-server binary
+releases/linux-arm64/mini-server binary
+releases/linux-*/THIRD-PARTY-NOTICES.txt -whitespace
