@@ -1,5 +1,7 @@
 # Mini Voice
 
+**[Complete installation and update guide →](mini-voice/docs/INSTALL-UPDATE.md)**
+
 Нативний Windows-застосунок для повідомлень і голосових дзвінків до 8 учасників.
 Сервер — один Rust-процес із SQLite, TLS та зашифрованим UDP; браузер не потрібен.
 
