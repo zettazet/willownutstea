@@ -60,7 +60,7 @@ decoded or rendered while OFF; already-in-flight replies are ignored without
 image decoding. Only avatar revision metadata continues to synchronize.
 
 Only current-call profiles are requested, never the whole user directory. The
-cache has a hard ceiling of twenty 32×32 BGRA thumbnails (80 KiB pixel storage;
+cache has a hard ceiling of twenty 40×40 BGRA thumbnails (125 KiB pixel storage;
 current calls use at most eight). It evicts profiles outside the call and reuses
 unchanged revisions. There are no persistent GDI bitmaps per avatar. Temporary
 encoded responses/decoder buffers and map overhead are additional to that bound.
@@ -104,3 +104,25 @@ See VALIDATION.md for tests and executed checks. Native Windows devices, real
 hardware hotplug, real IME software, residential network latency and Windows
 RAM/CPU differences require testing on Windows; numeric improvements are not
 claimed from a Linux/Wine build environment.
+
+## Voice cleanup and square avatars
+
+Voice cleanup in Audio / Profile is ON by default and saved locally. It changes
+your outgoing microphone audio before the microphone gain, limiter and Opus
+encoding. An 80 Hz high-pass reduces rumble; an 8 kHz low-pass softens hiss;
+a gentle downward expander lowers very quiet background noise. Smoothed gain
+changes preserve speech transitions. There is no upward automatic gain, hard
+speech gate, look-ahead buffer, added audio thread or new library dependency.
+The filter uses less than 128 bytes of fixed state. Changes apply during calls;
+mute clears the filter state. Turn it OFF if you prefer the original mic sound.
+
+This is lightweight signal filtering, not echo cancellation or AI separation.
+It cannot remove loud keyboard noise or another voice while you are speaking.
+Use headphones and keep the microphone close to improve the source signal.
+Everyone updating their client cleans their own outgoing microphone signal;
+your local playback volume controls continue to work independently.
+
+Call avatars are now 40×40 squares (25% larger per side), including the initials
+placeholder. The call area gains 16 pixels for two rows of four participants;
+Show Avatars OFF uses the original text spacing and still frees cached images.
+This update is entirely client-side; the server does not need another update.

@@ -1,6 +1,7 @@
-//! Only visible profiles are requested. At most twenty 32x32 BGRA thumbnails.
+//! Only visible profiles are requested. At most twenty 40x40 BGRA thumbnails.
 use mini_shared::{User, MAX_AVATAR_STORED};
 use std::collections::{HashMap, HashSet};
+pub const ICON_SIZE: u32 = 40;
 const CAPACITY: usize = 20;
 pub struct Thumbnail {
     pub pixels: Vec<u8>,
@@ -76,7 +77,7 @@ impl Cache {
         );
         let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Jpeg)?;
         let small = decoded
-            .resize_to_fill(32, 32, image::imageops::FilterType::Triangle)
+            .resize_to_fill(ICON_SIZE, ICON_SIZE, image::imageops::FilterType::Triangle)
             .to_rgba8();
         let mut pixels = small.into_raw();
         for pixel in pixels.as_chunks_mut::<4>().0 {
@@ -110,7 +111,10 @@ mod tests {
         assert!(cache
             .accept(true, 0, Some("revision0"), &hex::encode(data.into_inner()))
             .unwrap());
-        assert_eq!(cache.get(0).unwrap().pixels.len(), 4096);
+        assert_eq!(
+            cache.get(0).unwrap().pixels.len(),
+            (ICON_SIZE * ICON_SIZE * 4) as usize
+        );
         assert!(cache.reconcile(true, (0..100).map(user)).is_empty());
         assert!(cache.reconcile(false, (0..100).map(user)).is_empty());
         assert!(cache.images.is_empty() && cache.pending.is_empty());

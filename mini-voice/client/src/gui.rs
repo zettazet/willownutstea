@@ -61,6 +61,7 @@ const MIC_LABEL: i32 = 158;
 const MASTER_LABEL: i32 = 159;
 const GAIN_BASE: i32 = 170;
 const LABEL_BASE: i32 = 180;
+const VOICE_CLEANUP: i32 = 160;
 const MIXER_CHANGE: u32 = WM_APP + 11;
 fn w(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -269,6 +270,7 @@ impl App {
         }
         for (id, label) in [
             (AVATARS, "Show Avatars"),
+            (VOICE_CLEANUP, "Voice cleanup"),
             (UPLOAD, "Upload avatar"),
             (REMOVE_AVATAR, "Remove avatar"),
         ] {
@@ -277,7 +279,7 @@ impl App {
                 label,
                 id,
                 WS_TABSTOP
-                    | if id == AVATARS {
+                    | if id == AVATARS || id == VOICE_CLEANUP {
                         BS_AUTOCHECKBOX as u32
                     } else {
                         0
@@ -288,6 +290,16 @@ impl App {
             self.control(AVATARS),
             BM_SETCHECK,
             if self.settings.preferences.show_avatars {
+                BST_CHECKED as usize
+            } else {
+                BST_UNCHECKED as usize
+            },
+            0,
+        );
+        SendMessageW(
+            self.control(VOICE_CLEANUP),
+            BM_SETCHECK,
+            if self.settings.preferences.voice_cleanup {
                 BST_CHECKED as usize
             } else {
                 BST_UNCHECKED as usize
@@ -362,6 +374,11 @@ impl App {
         pos(CALL, 336, 82, 75, 26);
         pos(JOIN, 419, 82, 100, 26);
         pos(DECLINE, 527, 82, 80, 26);
+        let avatar_extra = if self.settings.preferences.show_avatars {
+            16
+        } else {
+            0
+        };
         let panel_height = if self.panel_open {
             108 + self.mixer_users.len() as i32 * 24
         } else {
@@ -372,15 +389,16 @@ impl App {
             208,
             116,
             width - 216,
-            (height - 284 - panel_height).max(40),
+            (height - 284 - avatar_extra - panel_height).max(40),
         );
-        let y = height - 168 - panel_height;
+        let y = height - 168 - avatar_extra - panel_height;
         pos(INPUT_DEVICE, 208, y, 270, 260);
         pos(OUTPUT_DEVICE, 486, y, width - 494, 260);
         pos(MIC_LABEL, 208, y + 30, 130, 22);
         pos(MIC_GAIN, 340, y + 26, 138, 28);
         pos(MASTER_LABEL, 486, y + 30, 130, 22);
         pos(MASTER_GAIN, 618, y + 26, (width - 626).max(90), 28);
+        pos(VOICE_CLEANUP, 612, y + 60, 160, 26);
         pos(AVATARS, 208, y + 60, 140, 26);
         pos(UPLOAD, 356, y + 60, 120, 26);
         pos(REMOVE_AVATAR, 484, y + 60, 120, 26);
@@ -396,6 +414,7 @@ impl App {
             MASTER_LABEL,
             MASTER_GAIN,
             AVATARS,
+            VOICE_CLEANUP,
             UPLOAD,
             REMOVE_AVATAR,
         ] {
@@ -424,9 +443,15 @@ impl App {
             self.control(MASTER_LABEL),
             &format!("Output: {}%", self.settings.preferences.master.min(200)),
         );
-        pos(INPUT, 208, height - 160, width - 296, 28);
-        pos(SEND, width - 80, height - 160, 72, 28);
-        pos(PEOPLE, 208, height - 124, width - 216, 70);
+        pos(INPUT, 208, height - 160 - avatar_extra, width - 296, 28);
+        pos(SEND, width - 80, height - 160 - avatar_extra, 72, 28);
+        pos(
+            PEOPLE,
+            208,
+            height - 124 - avatar_extra,
+            width - 216,
+            70 + avatar_extra,
+        );
         pos(MIC, 208, height - 42, 105, 30);
         pos(DEAF, 321, height - 42, 105, 30);
         pos(LEAVE, 434, height - 42, 85, 30);
@@ -696,12 +721,22 @@ impl App {
                 self.save_preferences();
                 self.reopen_audio();
             }
+            VOICE_CLEANUP => {
+                let enabled = SendMessageW(self.control(VOICE_CLEANUP), BM_GETCHECK, 0, 0)
+                    == BST_CHECKED as isize;
+                self.settings.preferences.voice_cleanup = enabled;
+                if let Some(audio) = &self.audio {
+                    audio.cleanup.store(enabled, Ordering::Relaxed);
+                }
+                self.save_preferences();
+            }
             AVATARS => {
                 self.settings.preferences.show_avatars =
                     SendMessageW(self.control(AVATARS), BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
                 self.save_preferences();
                 let users = self.call_users();
                 self.sync_avatars(users);
+                self.layout();
                 InvalidateRect(self.control(PEOPLE), null(), 0);
             }
             UPLOAD => {
@@ -1189,7 +1224,7 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
     if msg == WM_GETMINMAXINFO {
         let info = &mut *(lp as *mut MINMAXINFO);
         info.ptMinTrackSize.x = 820;
-        info.ptMinTrackSize.y = 640;
+        info.ptMinTrackSize.y = 656;
         return 0;
     }
     // Queue control notifications so synchronous Win32 callbacks cannot reborrow App.

@@ -1,4 +1,4 @@
-use mini_client::avatars::Cache;
+use mini_client::avatars::{Cache, ICON_SIZE};
 use mini_shared::{Call, MAX_AVATAR_UPLOAD};
 use std::{io::Read, os::windows::ffi::OsStringExt};
 use windows_sys::Win32::{
@@ -39,7 +39,7 @@ pub unsafe fn choose(window: HWND) -> anyhow::Result<Option<Vec<u8>>> {
     );
     Ok(Some(bytes))
 }
-/// Paint cached 32px thumbnails directly; no persistent GDI bitmap per avatar.
+/// Paint cached square 40px thumbnails directly; no persistent GDI bitmap per avatar.
 pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cache: &Cache) {
     SetDCBrushColor(hdc, 0x00202020);
     FillRect(hdc, &rect, GetStockObject(DC_BRUSH) as HBRUSH);
@@ -68,12 +68,13 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
     let width = (rect.right - rect.left) / 4;
     for (i, p) in call.participants.iter().enumerate() {
         let x = rect.left + (i % 4) as i32 * width;
-        let y = rect.top + (i / 4) as i32 * 35;
+        let size = ICON_SIZE as i32;
+        let y = rect.top + (i / 4) as i32 * (size + 4);
         if let Some(image) = cache.get(p.user.id) {
             let mut info: BITMAPINFO = std::mem::zeroed();
             info.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
-            info.bmiHeader.biWidth = 32;
-            info.bmiHeader.biHeight = -32;
+            info.bmiHeader.biWidth = size;
+            info.bmiHeader.biHeight = -size;
             info.bmiHeader.biPlanes = 1;
             info.bmiHeader.biBitCount = 32;
             info.bmiHeader.biCompression = BI_RGB;
@@ -81,12 +82,12 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
                 hdc,
                 x,
                 y,
-                32,
-                32,
+                size,
+                size,
                 0,
                 0,
-                32,
-                32,
+                size,
+                size,
                 image.pixels.as_ptr() as _,
                 &info,
                 DIB_RGB_COLORS,
@@ -95,13 +96,13 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
         } else {
             SetDCBrushColor(hdc, 0x00785488);
             let old = SelectObject(hdc, GetStockObject(DC_BRUSH));
-            Ellipse(hdc, x, y, x + 32, y + 32);
+            Rectangle(hdc, x, y, x + size, y + size);
             SelectObject(hdc, old);
             let mut r = RECT {
                 left: x,
-                top: y + 6,
-                right: x + 32,
-                bottom: y + 32,
+                top: y + 11,
+                right: x + size,
+                bottom: y + size,
             };
             DrawTextW(
                 hdc,
@@ -112,7 +113,7 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
             );
         }
         let mut name_area = RECT {
-            left: x + 36,
+            left: x + size + 4,
             top: y,
             right: x + width - 2,
             bottom: y + 16,
@@ -130,10 +131,10 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
             if p.mic_muted { " [muted]" } else { "" }
         );
         let mut flags_area = RECT {
-            left: x + 36,
-            top: y + 16,
+            left: x + size + 4,
+            top: y + 20,
             right: x + width - 2,
-            bottom: y + 32,
+            bottom: y + size,
         };
         DrawTextW(
             hdc,

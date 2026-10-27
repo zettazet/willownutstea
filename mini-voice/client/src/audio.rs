@@ -192,6 +192,7 @@ pub mod device {
         pub deaf: Arc<AtomicBool>,
         pub failed: Arc<AtomicBool>,
         pub input_gain: Arc<AtomicU32>,
+        pub cleanup: Arc<AtomicBool>,
     }
     fn preflight() -> anyhow::Result<()> {
         // CPAL 0.16 unwraps COM activation internally. Check it first so a missing
@@ -276,6 +277,10 @@ pub mod device {
             let m = mic.clone();
             let input_gain = Arc::new(AtomicU32::new(preferences.microphone.min(200) as u32));
             let gain = input_gain.clone();
+            let cleanup = Arc::new(AtomicBool::new(preferences.voice_cleanup));
+            let cleanup_enabled = cleanup.clone();
+            let mut filter = crate::voice_filter::VoiceFilter::new();
+            let mut was_muted = false;
             let mut frame = [0f32; FRAME];
             let mut used = 0;
             let mut phase = 0u64;
@@ -284,16 +289,25 @@ pub mod device {
             let mut previous = 0f32;
             let mut capture = move |value: f32| {
                 if m.load(Ordering::Relaxed) {
+                    if !was_muted {
+                        filter.reset();
+                        previous = 0.;
+                        was_muted = true;
+                    }
                     used = 0;
                     phase = 0;
                     return;
                 }
+                was_muted = false;
                 phase += 48000;
                 while phase >= rate as u64 {
                     phase -= rate as u64;
                     let blend = phase as f32 / 48000.;
                     frame[used] = apply_gain(
-                        value * (1. - blend) + previous * blend,
+                        filter.sample(
+                            value * (1. - blend) + previous * blend,
+                            cleanup_enabled.load(Ordering::Relaxed),
+                        ),
                         gain.load(Ordering::Relaxed),
                     );
                     used += 1;
@@ -395,6 +409,7 @@ pub mod device {
                 deaf,
                 failed,
                 input_gain,
+                cleanup,
             })
         }
     }

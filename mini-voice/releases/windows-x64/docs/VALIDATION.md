@@ -184,7 +184,7 @@ playback, actual device hotplug/switching, audio latency and Windows RAM/CPU
 comparisons still need a Windows machine. The Windows CI job includes those
 existing automated tests, but remote CI completion has not been verified here.
 No numeric Windows performance improvements are claimed. Thumbnail pixel storage
-has a strict 80 KiB ceiling, excluding transient image decodes and upload buffers.
+has a strict 125 KiB ceiling, excluding transient image decodes and upload buffers.
 
 The known CPAL 0.16 COM-activation unwrap is now preceded by an audio-service
 preflight, so a missing backend does not abort merely when the panel opens.
@@ -192,3 +192,19 @@ No library/framework or runtime thread model was replaced. The only backend
 extension is authenticated, size-bounded avatar operations on the existing TLS
 connection and an additive SQLite table. See CLIENT-UPDATE.md for behavior,
 limits and upgrade instructions.
+
+## Voice cleanup / 40px square-avatar update
+
+Two synthetic DSP tests measure settled output against 20 Hz rumble, 1 kHz
+speech-band tones and 14 kHz hiss. They check rumble/hiss attenuation, low-level
+noise reduction, preservation of a soft voice above the expander threshold,
+exact bypass, mute reset, stable long silence, non-finite input handling and
+fixed state below 128 bytes. The suite now contains nineteen Linux Rust tests.
+The avatar-cache test checks 40×40 BGRA buffers and retains disabled/stale-reply
+checks. Preferences and the Windows startup smoke test cover the cleanup default,
+saving OFF and restoring it after restart.
+
+No physical microphone listening test or native Windows CPU/RAM benchmark was
+available. Synthetic frequency-response checks do not establish subjective voice
+quality, echo cancellation or separation of loud noise from speech. Server and
+wire formats are unchanged for this client-only update.

@@ -8,6 +8,7 @@ pub struct Preferences {
     pub input_device: Option<String>,
     pub output_device: Option<String>,
     pub show_avatars: bool,
+    pub voice_cleanup: bool,
     pub users: BTreeMap<String, u16>,
 }
 impl Default for Preferences {
@@ -18,6 +19,7 @@ impl Default for Preferences {
             input_device: None,
             output_device: None,
             show_avatars: true,
+            voice_cleanup: true,
             users: BTreeMap::new(),
         }
     }
@@ -46,14 +48,17 @@ mod tests {
     fn defaults_persistence_and_server_scoping() {
         let mut p: Preferences = serde_json::from_str("{}").unwrap();
         assert!(p.show_avatars);
+        assert!(p.voice_cleanup);
         assert_eq!(p.microphone, 100);
         p.set_user_gain("wss://one", 7, 40);
         p.set_user_gain("wss://two", 7, 150);
         p.show_avatars = false;
+        p.voice_cleanup = false;
         let p: Preferences = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         assert_eq!(p.user_gain("wss://one", 7), 40);
         assert_eq!(p.user_gain("wss://two", 7), 150);
         assert_eq!(p.user_gain("wss://two", 8), 100);
         assert!(!p.show_avatars);
+        assert!(!p.voice_cleanup);
     }
 }

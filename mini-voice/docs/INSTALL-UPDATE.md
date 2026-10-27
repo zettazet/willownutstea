@@ -5,7 +5,9 @@ Mini Voice has two parts: **one Linux server on your Oracle VM**, and a
 The Windows ZIP also contains `mini-server.exe`; the Oracle VM uses the Linux
 binary selected automatically by the installer.
 
-Already hosting the server? Follow **A**, then **C–E**. Follow **B** only for a
+For the Voice cleanup / 40px avatar update, an existing avatar-capable server
+needs no update: follow **C–E**. When upgrading a server from before avatar
+support, follow **A**, then **C–E**. Follow **B** only for a
 fresh server installation. All examples require replacing the domain, email, IP
 and SSH-key path with your own values.
 
@@ -280,9 +282,13 @@ sliders appear during calls and are saved by server/user ID. Device selectors
 include Default Windows Device. Changing devices may produce a brief gap; close
 and reopen the panel to refresh the device list after plugging in hardware.
 
+**Voice cleanup:** the Audio / Profile toggle defaults ON. It reduces microphone
+rumble, high hiss and very quiet background noise before encoding. Turn it OFF
+for the original sound; the choice is saved. This is not echo cancellation.
+
 **Avatars:** sign in, then Upload avatar. Use PNG/JPEG/WebP up to 5 MiB, at most
 4096 pixels on either side and at most 4 megapixels total. The server stores an
-optimized image of at most 256×256. Avatars show in calls; friends/conversation
+optimized image of at most 256×256. Avatars show as 40-pixel squares in calls; friends/conversation
 lists remain text. Remove avatar deletes your stored picture. Show Avatars only
 affects your own display and frees the image cache when OFF; it does not delete
 your picture. Large uploads take longer during calls because voice is prioritized.

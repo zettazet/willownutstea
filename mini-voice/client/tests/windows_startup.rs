@@ -94,6 +94,12 @@ fn saved_endpoint_startup_background_restore_and_exit() {
     }
     wait_until(|| unsafe { IsWindowVisible(GetDlgItem(search.window, 153)) } != 0);
     unsafe {
+        assert_eq!(
+            SendMessageW(GetDlgItem(search.window, 160), BM_GETCHECK, 0, 0),
+            1
+        );
+        SendMessageW(GetDlgItem(search.window, 160), BM_SETCHECK, 0, 0);
+        PostMessageW(search.window, WM_COMMAND, 160, 0);
         let microphone = GetDlgItem(search.window, 153);
         let output = GetDlgItem(search.window, 154);
         assert_eq!(SendMessageW(microphone, WM_USER, 0, 0), 100);
@@ -119,6 +125,7 @@ fn saved_endpoint_startup_background_restore_and_exit() {
                 value["preferences"]["microphone"] == 150
                     && value["preferences"]["master"] == 40
                     && value["preferences"]["show_avatars"] == false
+                    && value["preferences"]["voice_cleanup"] == false
             })
     });
     unsafe {
@@ -182,6 +189,10 @@ fn saved_endpoint_startup_background_restore_and_exit() {
         );
         assert_eq!(
             SendMessageW(GetDlgItem(search.window, 155), BM_GETCHECK, 0, 0),
+            0
+        );
+        assert_eq!(
+            SendMessageW(GetDlgItem(search.window, 160), BM_GETCHECK, 0, 0),
             0
         );
         PostMessageW(search.window, WM_COMMAND, 141, 0);
