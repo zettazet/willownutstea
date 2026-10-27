@@ -808,6 +808,8 @@ pub fn run() {
             hInstance: instance,
             lpszClassName: class.as_ptr(),
             hCursor: LoadCursorW(null_mut(), IDC_ARROW),
+            // Win32 MAKEINTRESOURCEW(1): an integer resource ID, not a pointer.
+            hIcon: LoadIconW(instance, std::ptr::without_provenance(1)),
             hbrBackground: brush,
             ..std::mem::zeroed()
         };

@@ -1,0 +1,2 @@
+// Keep the resource ID in sync with LoadIconW in src/gui.rs.
+1 ICON "client.ico"
