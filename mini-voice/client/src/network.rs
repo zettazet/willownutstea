@@ -262,7 +262,7 @@ async fn run(
                                         } else {
                                             room=None;
                                             if let Some(call)=desired_call {
-                                                if state.calls.iter().any(|c|c.id==call&&c.invited.contains(&me)) {
+                                                if state.calls.iter().any(|c|c.id==call&&c.invited.contains(&me)) || state.voice_rooms.iter().any(|r|r.id==call) {
                                                     if !rejoining {rejoining=true;if send_request(&mut sink,&Request::Join{call}).await.is_err(){break;}}
                                                 } else {desired_call=None;}
                                             }

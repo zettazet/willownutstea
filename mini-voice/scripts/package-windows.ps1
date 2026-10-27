@@ -7,6 +7,7 @@ try {
     $dir=Join-Path (Get-Location) 'dist/windows-x64'
     New-Item -ItemType Directory -Force -Path $dir|Out-Null
     Copy-Item target/release/mini-client.exe,target/release/mini-server.exe,server.example.json,LICENSE,README.md $dir
+    Copy-Item target/release/mini-client.exe (Join-Path $dir 'goyvoice.exe') -Force
     Copy-Item docs $dir -Recurse -Force
     Copy-Item docs/PORTABLE-WINDOWS.md (Join-Path $dir 'README.md') -Force
     Copy-Item scripts/benchmark.ps1 $dir

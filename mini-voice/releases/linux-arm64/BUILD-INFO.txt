@@ -1,0 +1,3 @@
+Platform: linux-arm64; Rust 1.99.1 optimized aarch64-unknown-linux-gnu cross-build.
+Requires glibc >= 2.38 / Ubuntu 24.04. Eight-client TLS/UDP/reconnect and persistent-room integration passed under QEMU.
+No Oracle VM was accessed. See ../../docs/VALIDATION.md and ../../docs/ROOMS.md.

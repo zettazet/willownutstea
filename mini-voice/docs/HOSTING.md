@@ -1,4 +1,4 @@
-# Oracle Always Free: встановлення Mini Voice
+# Oracle Always Free: встановлення goyvoice
 
 Ціль: **Ubuntu 24.04 LTS** на Oracle Compute VM, x86_64 або ARM64.
 Сервер працює постійно як служба; домашній ПК тримати ввімкненим не потрібно.

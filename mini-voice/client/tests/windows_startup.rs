@@ -73,6 +73,25 @@ fn saved_endpoint_startup_background_restore_and_exit() {
         }
         !search.window.is_null() && unsafe { IsWindowVisible(search.window) } != 0
     });
+    unsafe {
+        let mut title = [0u16; 128];
+        let len = GetWindowTextW(search.window, title.as_mut_ptr(), 128);
+        assert!(String::from_utf16_lossy(&title[..len as usize]).contains("goyvoice"));
+        assert!(!GetDlgItem(search.window, 200).is_null());
+        PostMessageW(search.window, WM_COMMAND, 200, 0);
+    }
+    wait_until(|| unsafe { IsWindowVisible(GetDlgItem(search.window, 201)) } != 0);
+    unsafe {
+        assert_eq!(
+            windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(GetDlgItem(
+                search.window,
+                204
+            )),
+            0
+        );
+        PostMessageW(search.window, WM_COMMAND, 200, 0);
+    }
+    wait_until(|| unsafe { IsWindowVisible(GetDlgItem(search.window, 201)) } == 0);
     let mut socket = None;
     wait_until(|| {
         socket = listener.accept().ok().map(|s| s.0);

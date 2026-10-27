@@ -58,7 +58,7 @@ impl Tray {
         } else {
             ""
         };
-        let tip = format!("Mini Voice | {mode}{call}\n{status}");
+        let tip = format!("goyvoice | {mode}{call}\n{status}");
         if self.present.get() && *self.last_tip.borrow() == tip {
             return true;
         }
@@ -120,7 +120,7 @@ pub unsafe fn callback(window: HWND, event: u32) {
             if menu.is_null() {
                 return;
             }
-            AppendMenuW(menu, MF_STRING, OPEN_ITEM, wide("Open Mini Voice").as_ptr());
+            AppendMenuW(menu, MF_STRING, OPEN_ITEM, wide("Open goyvoice").as_ptr());
             AppendMenuW(menu, MF_SEPARATOR, 0, null());
             AppendMenuW(
                 menu,

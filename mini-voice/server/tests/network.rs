@@ -67,7 +67,7 @@ async fn eight_clients_tls_messaging_calls_udp_and_reconnect() {
     let sock = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
     let udp_port = sock.local_addr().unwrap().port();
     drop(sock);
-    let cfg = serde_json::json!({"listen":format!("127.0.0.1:{port}"),"udp_listen":format!("127.0.0.1:{udp_port}"),"database":"db.sqlite","tls_cert":"cert.pem","tls_key":"key.pem"});
+    let cfg = serde_json::json!({"listen":format!("127.0.0.1:{port}"),"udp_listen":format!("127.0.0.1:{udp_port}"),"database":"db.sqlite","tls_cert":"cert.pem","tls_key":"key.pem","room_creator_username":"friend0"});
     std::fs::write(dir.path().join("server.json"), cfg.to_string()).unwrap();
     let checked = server_command()
         .args(["--check-config", "server.json"])
@@ -568,6 +568,80 @@ async fn eight_clients_tls_messaging_calls_udp_and_reconnect() {
     })
     .await
     .unwrap();
+    // Persistent rooms use the same authenticated voice path, with no invitation.
+    for index in [0, 3] {
+        send(&mut sockets[index], Request::Leave {}).await;
+        event(&mut sockets[index], |e| matches!(e, Event::State{state} if state.calls.iter().all(|c|c.participants.iter().all(|p|p.user.id != ids[index])))).await;
+    }
+    // The config uses friend0 as creator for this isolated server, not a built-in bypass.
+    send(
+        &mut sockets[3],
+        Request::RoomCreate {
+            name: "Blocked".into(),
+            password: "231939".into(),
+        },
+    )
+    .await;
+    event(
+        &mut sockets[3],
+        |e| matches!(e, Event::Error { message } if message.contains("configured room creator")),
+    )
+    .await;
+    send(
+        &mut sockets[0],
+        Request::RoomCreate {
+            name: "Persistent lounge".into(),
+            password: "231939".into(),
+        },
+    )
+    .await;
+    let state = event(&mut sockets[0], |e| matches!(e, Event::State { state } if state.voice_rooms.iter().any(|r|r.name == "Persistent lounge"))).await;
+    let Event::State { state } = state else {
+        unreachable!()
+    };
+    let room_id = state
+        .voice_rooms
+        .iter()
+        .find(|r| r.name == "Persistent lounge")
+        .unwrap()
+        .id;
+    assert!(state.can_create_rooms);
+    send(&mut sockets[0], Request::Join { call: room_id }).await;
+    event(&mut sockets[0], |e| matches!(e, Event::State {state} if state.voice_rooms.iter().any(|r|r.id == room_id && r.participants == 1))).await;
+    send(&mut sockets[3], Request::Join { call: room_id }).await;
+    event(&mut sockets[0], |e| matches!(e, Event::State {state} if state.voice_rooms.iter().any(|r|r.id == room_id && r.participants == 2))).await;
+    // Force TLS delivery to verify room audio reaches a friend through the real server.
+    send(&mut sockets[3], Request::VoiceTransport { udp: false }).await;
+    event(&mut sockets[3], |e| matches!(e, Event::Pong)).await;
+    let mut room_audio = room_id.to_be_bytes().to_vec();
+    room_audio.extend_from_slice(&77u64.to_be_bytes());
+    room_audio.extend_from_slice(&[0xf8, 0xff, 0xfe]);
+    sockets[0]
+        .send(Message::Binary(room_audio.into()))
+        .await
+        .unwrap();
+    timeout(Duration::from_secs(3), async {
+        loop {
+            match sockets[3].next().await.unwrap().unwrap() {
+                Message::Binary(data) if data[..8] == room_id.to_be_bytes() => {
+                    assert_eq!(&data[24..], &[0xf8, 0xff, 0xfe]);
+                    break;
+                }
+                Message::Ping(b) => sockets[3].send(Message::Pong(b)).await.unwrap(),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+    send(&mut sockets[3], Request::RoomDelete { room: room_id }).await;
+    event(
+        &mut sockets[3],
+        |e| matches!(e, Event::Error { message } if message.contains("room owner")),
+    )
+    .await;
+    send(&mut sockets[0], Request::RoomDelete { room: room_id }).await;
+    event(&mut sockets[3], |e| matches!(e, Event::State {state} if state.voice_rooms.is_empty() && state.calls.iter().all(|c|c.id != room_id))).await;
     #[cfg(unix)]
     {
         assert!(Command::new("kill")

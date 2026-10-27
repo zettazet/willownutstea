@@ -5,6 +5,7 @@ pub enum Cue {
     Call,
     Mute,
     Unmute,
+    Message,
 }
 // WAVE headers are read as words by WinMM, so make alignment explicit.
 #[repr(align(4))]
@@ -15,11 +16,14 @@ static MUTE: Wave<{ include_bytes!("../assets/mute.wav").len() }> =
     Wave(*include_bytes!("../assets/mute.wav"));
 static UNMUTE: Wave<{ include_bytes!("../assets/unmute.wav").len() }> =
     Wave(*include_bytes!("../assets/unmute.wav"));
+static MESSAGE: Wave<{ include_bytes!("../assets/message.wav").len() }> =
+    Wave(*include_bytes!("../assets/message.wav"));
 pub fn play(cue: Cue) {
     let bytes: &[u8] = match cue {
         Cue::Call => &CALL.0,
         Cue::Mute => &MUTE.0,
         Cue::Unmute => &UNMUTE.0,
+        Cue::Message => &MESSAGE.0,
     };
     unsafe {
         PlaySoundW(

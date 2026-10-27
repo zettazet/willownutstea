@@ -62,6 +62,13 @@ pub enum Request {
     Decline {
         call: u64,
     },
+    RoomCreate {
+        name: String,
+        password: String,
+    },
+    RoomDelete {
+        room: u64,
+    },
     Leave {},
     Controls {
         mic_muted: bool,
@@ -117,11 +124,22 @@ pub struct Call {
     pub invited: Vec<i64>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceRoom {
+    pub id: u64,
+    pub name: String,
+    pub owner: User,
+    pub participants: usize,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
     pub friends: Vec<User>,
     pub incoming: Vec<User>,
     pub conversations: Vec<Conversation>,
     pub calls: Vec<Call>,
+    #[serde(default)]
+    pub voice_rooms: Vec<VoiceRoom>,
+    #[serde(default)]
+    pub can_create_rooms: bool,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]

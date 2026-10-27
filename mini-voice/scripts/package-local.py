@@ -43,6 +43,9 @@ for platform in ('windows-x64', 'linux-x64'):
             print(f'{name}: only Windows system DLL imports verified')
         shutil.copy2(source, stage / name)
         (stage / name).chmod(0o755)
+    if platform.startswith('windows'):
+        shutil.copy2(stage / 'mini-client.exe', stage / 'goyvoice.exe')
+        binaries.append('goyvoice.exe')
     for name in ('README.md', 'LICENSE', 'server.example.json'):
         shutil.copy2(root / name, stage / name)
     shutil.copytree(root / 'docs', stage / 'docs', dirs_exist_ok=True)

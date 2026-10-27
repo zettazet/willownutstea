@@ -1,4 +1,4 @@
-Third-party source license notices for Mini Voice.
+Third-party source license notices for goyvoice.
 This conservative inventory includes downloaded build/test dependencies.
 Platform system DLLs are supplied by Windows. SQLite is public domain.
 

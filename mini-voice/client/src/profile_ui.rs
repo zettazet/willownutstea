@@ -40,7 +40,28 @@ pub unsafe fn choose(window: HWND) -> anyhow::Result<Option<Vec<u8>>> {
     Ok(Some(bytes))
 }
 /// Paint cached square 40px thumbnails directly; no persistent GDI bitmap per avatar.
-pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cache: &Cache) {
+pub unsafe fn draw(
+    hdc: HDC,
+    rect: RECT,
+    call: Option<&Call>,
+    enabled: bool,
+    cache: &Cache,
+    bold_font: HFONT,
+) {
+    struct SavedDc(HDC, i32);
+    impl Drop for SavedDc {
+        fn drop(&mut self) {
+            unsafe {
+                RestoreDC(self.0, self.1);
+            }
+        }
+    }
+    let _saved = SavedDc(hdc, SaveDC(hdc));
+    let regular_font = GetCurrentObject(hdc, OBJ_FONT as u32);
+    const COLORS: [u32; 8] = [
+        0x009dc4ff, 0x00b7a9ff, 0x00efc4ce, 0x00f5d1a1, 0x00b7e0ab, 0x0082def5, 0x00a2a2f6,
+        0x00d2df82,
+    ];
     SetDCBrushColor(hdc, crate::theme::BACKGROUND);
     FillRect(hdc, &rect, GetStockObject(DC_BRUSH) as HBRUSH);
     SetTextColor(hdc, crate::theme::TEXT);
@@ -49,20 +70,41 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
         return;
     };
     if !enabled {
-        let text = call
-            .participants
-            .iter()
-            .map(|p| {
-                format!(
-                    "{}{}{}   ",
-                    p.user.username,
-                    if p.labeled { " — gay" } else { "" },
-                    if p.mic_muted { " [muted]" } else { "" }
-                )
-            })
-            .collect::<String>();
-        let mut area = rect;
-        DrawTextW(hdc, wide(&text).as_ptr(), -1, &mut area, DT_WORDBREAK);
+        let width = (rect.right - rect.left) / 4;
+        for (i, p) in call.participants.iter().enumerate() {
+            if !bold_font.is_null() {
+                SelectObject(hdc, bold_font);
+            }
+            SetTextColor(hdc, COLORS[i % COLORS.len()]);
+            let mut area = RECT {
+                left: rect.left + (i % 4) as i32 * width,
+                top: rect.top + (i / 4) as i32 * 32,
+                right: rect.left + (i % 4 + 1) as i32 * width - 4,
+                bottom: rect.top + (i / 4) as i32 * 32 + 17,
+            };
+            DrawTextW(
+                hdc,
+                wide(&p.user.username).as_ptr(),
+                -1,
+                &mut area,
+                DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX,
+            );
+            SelectObject(hdc, regular_font);
+            let flags = format!(
+                "{}{}",
+                if p.labeled { "gay" } else { "" },
+                if p.mic_muted { " [muted]" } else { "" }
+            );
+            area.top += 16;
+            area.bottom += 16;
+            DrawTextW(
+                hdc,
+                wide(&flags).as_ptr(),
+                -1,
+                &mut area,
+                DT_SINGLELINE | DT_END_ELLIPSIS,
+            );
+        }
         return;
     }
     let width = (rect.right - rect.left) / 4;
@@ -112,6 +154,10 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
                 DT_CENTER | DT_SINGLELINE,
             );
         }
+        if !bold_font.is_null() {
+            SelectObject(hdc, bold_font);
+        }
+        SetTextColor(hdc, COLORS[i % COLORS.len()]);
         let mut name_area = RECT {
             left: x + size + 4,
             top: y,
@@ -125,6 +171,8 @@ pub unsafe fn draw(hdc: HDC, rect: RECT, call: Option<&Call>, enabled: bool, cac
             &mut name_area,
             DT_SINGLELINE | DT_END_ELLIPSIS,
         );
+        SelectObject(hdc, regular_font);
+        SetTextColor(hdc, crate::theme::TEXT);
         let flags = format!(
             "{}{}",
             if p.labeled { "gay" } else { "" },
@@ -151,6 +199,7 @@ pub struct View {
     pub call: Option<Call>,
     pub enabled: bool,
     pub cache: Cache,
+    pub bold_font: HFONT,
 }
 pub fn property() -> Vec<u16> {
     wide("MiniVoiceProfileView")

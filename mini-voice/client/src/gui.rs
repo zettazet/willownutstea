@@ -68,6 +68,14 @@ const NEURAL: i32 = 161;
 const SOUNDS: i32 = 162;
 const THRESHOLD: i32 = 163;
 const THRESHOLD_LABEL: i32 = 164;
+const ROOM_MODE: i32 = 200;
+const ROOM_LIST: i32 = 201;
+const ROOM_NAME: i32 = 202;
+const ROOM_PASSWORD: i32 = 203;
+const ROOM_CREATE: i32 = 204;
+const ROOM_JOIN: i32 = 205;
+const ROOM_DELETE: i32 = 206;
+const ROOM_DELETE_CONFIRM: u32 = WM_APP + 20;
 const INSERT_HOTKEY: i32 = 1;
 const MIXER_CHANGE: u32 = WM_APP + 11;
 fn w(s: &str) -> Vec<u16> {
@@ -104,6 +112,10 @@ struct App {
     deaf: bool,
     room: Option<u64>,
     panel_open: bool,
+    room_mode: bool,
+    selected_room: Option<u64>,
+    notified_messages: VecDeque<i64>,
+    last_message_sound: Option<std::time::Instant>,
     input_devices: Vec<String>,
     output_devices: Vec<String>,
     mixer_users: Vec<i64>,
@@ -140,6 +152,9 @@ impl App {
         self.state = None;
         self.selected = None;
         self.messages.clear();
+        self.notified_messages.clear();
+        self.selected_room = None;
+        SendMessageW(self.control(ROOM_LIST), LB_RESETCONTENT, 0, 0);
         self.pending.clear();
         self.failed.clear();
         self.room = None;
@@ -281,9 +296,49 @@ impl App {
             0,
         );
         make("BUTTON", "Audio / Profile", PANEL, WS_TABSTOP);
+        for (id, label) in [
+            (ROOM_MODE, "Chats / show rooms"),
+            (ROOM_CREATE, "Create room"),
+            (ROOM_JOIN, "Join room"),
+            (ROOM_DELETE, "Delete room"),
+        ] {
+            make("BUTTON", label, id, WS_TABSTOP);
+        }
+        make(
+            "LISTBOX",
+            "",
+            ROOM_LIST,
+            WS_BORDER | WS_VSCROLL | LBS_NOTIFY as u32 | WS_TABSTOP,
+        );
+        make(
+            "EDIT",
+            "",
+            ROOM_NAME,
+            WS_BORDER | ES_AUTOHSCROLL as u32 | WS_TABSTOP,
+        );
+        make(
+            "EDIT",
+            "",
+            ROOM_PASSWORD,
+            WS_BORDER | ES_AUTOHSCROLL as u32 | ES_PASSWORD as u32 | WS_TABSTOP,
+        );
+        SendMessageW(self.control(ROOM_NAME), EM_SETLIMITTEXT, 48, 0);
+        SendMessageW(self.control(ROOM_PASSWORD), EM_SETLIMITTEXT, 128, 0);
+        SendMessageW(
+            self.control(ROOM_NAME),
+            EM_SETCUEBANNER,
+            1,
+            w("New room name").as_ptr() as isize,
+        );
+        SendMessageW(
+            self.control(ROOM_PASSWORD),
+            EM_SETCUEBANNER,
+            1,
+            w("Room creation password").as_ptr() as isize,
+        );
         make("STATIC", "FRIENDS / REQUESTS", 190, 0);
         make("STATIC", "CONVERSATIONS", 191, 0);
-        make("STATIC", "MINI VOICE  /  a place to talk", 192, 0);
+        make("STATIC", "goyvoice  /  a place to talk", 192, 0);
         for id in [INPUT_DEVICE, OUTPUT_DEVICE] {
             make(
                 "COMBOBOX",
@@ -443,13 +498,61 @@ impl App {
         let sidebar_y = 218 + friends_height;
         pos(CHAT, left, sidebar_y, 104, 30);
         pos(INVITE, 128, sidebar_y, 104, 30);
-        pos(191, left, sidebar_y + 42, side, 22);
-        pos(
-            CONVOS,
-            left,
-            sidebar_y + 70,
-            side,
-            (height - sidebar_y - 86).max(60),
+        ShowWindow(self.control(191), SW_HIDE);
+        pos(ROOM_MODE, left, sidebar_y + 40, side, 28);
+        set(
+            self.control(ROOM_MODE),
+            if self.room_mode {
+                "Rooms / show chats"
+            } else {
+                "Chats / show rooms"
+            },
+        );
+        let list_y = sidebar_y + 78;
+        let list_height = (height - list_y - 16).max(80);
+        pos(CONVOS, left, list_y, side, list_height);
+        let room_list_height = (list_height - 144).max(60);
+        pos(ROOM_LIST, left, list_y, side, room_list_height);
+        let fields_y = list_y + room_list_height + 8;
+        pos(ROOM_NAME, left, fields_y, side, 28);
+        pos(ROOM_PASSWORD, left, fields_y + 34, side, 28);
+        pos(ROOM_CREATE, left, fields_y + 68, side, 28);
+        pos(ROOM_JOIN, left, fields_y + 102, 104, 28);
+        pos(ROOM_DELETE, 128, fields_y + 102, 104, 28);
+        ShowWindow(
+            self.control(CONVOS),
+            if self.room_mode { SW_HIDE } else { SW_SHOW },
+        );
+        for id in [
+            ROOM_LIST,
+            ROOM_NAME,
+            ROOM_PASSWORD,
+            ROOM_CREATE,
+            ROOM_JOIN,
+            ROOM_DELETE,
+        ] {
+            ShowWindow(
+                self.control(id),
+                if self.room_mode { SW_SHOW } else { SW_HIDE },
+            );
+        }
+        let creator = self.state.as_ref().is_some_and(|s| s.can_create_rooms);
+        for id in [ROOM_CREATE, ROOM_NAME, ROOM_PASSWORD] {
+            EnableWindow(self.control(id), creator as i32);
+        }
+        let own_room = self
+            .state
+            .as_ref()
+            .and_then(|s| {
+                s.voice_rooms
+                    .iter()
+                    .find(|r| Some(r.id) == self.selected_room)
+            })
+            .is_some_and(|r| self.user.as_ref().is_some_and(|me| me.id == r.owner.id));
+        EnableWindow(self.control(ROOM_DELETE), own_room as i32);
+        EnableWindow(
+            self.control(ROOM_JOIN),
+            (self.selected_room.is_some() && self.room.is_none()) as i32,
         );
         pos(OLDER, main, 102, 132, 32);
         pos(CALL, main + 140, 102, 82, 32);
@@ -643,6 +746,36 @@ impl App {
             return;
         };
         let old = self.selected;
+        SendMessageW(self.control(ROOM_LIST), LB_RESETCONTENT, 0, 0);
+        if !s
+            .voice_rooms
+            .iter()
+            .any(|r| Some(r.id) == self.selected_room)
+        {
+            self.selected_room = s.voice_rooms.first().map(|r| r.id);
+        }
+        for (index, room) in s.voice_rooms.iter().enumerate() {
+            let label = format!(
+                "[{}/8 {}] {} — {}",
+                room.participants,
+                if room.participants == 0 {
+                    "empty"
+                } else {
+                    "LIVE"
+                },
+                room.name,
+                room.owner.username
+            );
+            SendMessageW(
+                self.control(ROOM_LIST),
+                LB_ADDSTRING,
+                0,
+                w(&label).as_ptr() as isize,
+            );
+            if Some(room.id) == self.selected_room {
+                SendMessageW(self.control(ROOM_LIST), LB_SETCURSEL, index, 0);
+            }
+        }
         SendMessageW(self.control(FRIENDS), LB_RESETCONTENT, 0, 0);
         for (index, (u, incoming)) in s
             .friends
@@ -690,6 +823,18 @@ impl App {
                 .find(|c| c.participants.iter().any(|p| p.user.id == u.id))
         });
         let room = current.map(|c| c.id);
+        if let Some(me) = &self.user {
+            let suffix = s
+                .voice_rooms
+                .iter()
+                .find(|r| Some(r.id) == room)
+                .map(|r| format!(" — {}", r.name))
+                .unwrap_or_default();
+            set(
+                self.window,
+                &format!("goyvoice — {}{}", me.username, suffix),
+            );
+        }
         let old_users: Vec<_> = self
             .profile
             .borrow()
@@ -831,6 +976,35 @@ impl App {
             return;
         }
         match id {
+            ROOM_MODE => {
+                self.room_mode = !self.room_mode;
+                self.layout();
+            }
+            ROOM_LIST if notification == LBN_SELCHANGE as u16 => {
+                let index = SendMessageW(self.control(ROOM_LIST), LB_GETCURSEL, 0, 0);
+                self.selected_room = self
+                    .state
+                    .as_ref()
+                    .and_then(|s| s.voice_rooms.get(index as usize))
+                    .map(|r| r.id);
+                self.layout();
+            }
+            ROOM_CREATE => {
+                let name = text(self.control(ROOM_NAME));
+                let password = text(self.control(ROOM_PASSWORD));
+                set(self.control(ROOM_PASSWORD), "");
+                if self.send(Request::RoomCreate { name, password }) {
+                    self.status("Room creation requested; check the rooms list");
+                }
+            }
+            ROOM_JOIN => {
+                if let Some(call) = self.selected_room {
+                    self.send(Request::Join { call });
+                }
+            }
+            ROOM_DELETE => {
+                PostMessageW(self.window, ROOM_DELETE_CONFIRM, 0, 0);
+            }
             PANEL => {
                 self.panel_open = !self.panel_open;
                 if self.panel_open {
@@ -1110,7 +1284,7 @@ impl App {
                     }
                     Event::AvatarSaved { .. } => self.status("Avatar updated"),
                     Event::Auth { user, token, .. } => {
-                        set(self.window, &format!("Mini Voice — {}", user.username));
+                        set(self.window, &format!("goyvoice — {}", user.username));
                         self.user = Some(user);
                         if let Some(conversation) = self.selected {
                             self.send(Request::History {
@@ -1158,6 +1332,26 @@ impl App {
                         self.render_messages();
                     }
                     Event::Message { message } => {
+                        if self
+                            .user
+                            .as_ref()
+                            .is_some_and(|me| me.id != message.sender.id)
+                            && !self.notified_messages.contains(&message.id)
+                        {
+                            self.notified_messages.push_back(message.id);
+                            if self.notified_messages.len() > 64 {
+                                self.notified_messages.pop_front();
+                            }
+                            if self.settings.preferences.notification_sounds
+                                && !self.deaf
+                                && self.last_message_sound.is_none_or(|t| {
+                                    t.elapsed() >= std::time::Duration::from_millis(300)
+                                })
+                            {
+                                crate::sounds::play(crate::sounds::Cue::Message);
+                                self.last_message_sound = Some(std::time::Instant::now());
+                            }
+                        }
                         if Some(message.conversation) == self.selected
                             && !self.messages.iter().any(|m| m.id == message.id)
                         {
@@ -1197,7 +1391,7 @@ impl App {
                         self.profile.borrow_mut().call = None;
                         self.mixer_users.clear();
                         self.user = None;
-                        set(self.window, "Mini Voice");
+                        set(self.window, "goyvoice");
                         self.state = None;
                         self.selected = None;
                         self.room = None;
@@ -1208,6 +1402,9 @@ impl App {
                         self.render_messages();
                         SendMessageW(self.control(FRIENDS), LB_RESETCONTENT, 0, 0);
                         SendMessageW(self.control(CONVOS), LB_RESETCONTENT, 0, 0);
+                        SendMessageW(self.control(ROOM_LIST), LB_RESETCONTENT, 0, 0);
+                        self.selected_room = None;
+                        self.notified_messages.clear();
                         self.layout();
                     }
                     _ => {}
@@ -1472,11 +1669,36 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                         view.call.as_ref(),
                         view.enabled,
                         &view.cache,
+                        view.bold_font,
                     );
                 }
             }
             return 1;
         }
+    }
+    if msg == ROOM_DELETE_CONFIRM {
+        let ptr = GetWindowLongPtrW(h, GWLP_USERDATA) as *mut App;
+        let selected = if ptr.is_null() {
+            None
+        } else {
+            (&*ptr).selected_room
+        };
+        if let Some(room) = selected {
+            // Hold no App reference across the modal loop.
+            if MessageBoxW(
+                h,
+                w("Delete this room permanently? Everyone inside will leave.").as_ptr(),
+                w("goyvoice — delete room").as_ptr(),
+                MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2,
+            ) == IDYES
+            {
+                let ptr = GetWindowLongPtrW(h, GWLP_USERDATA) as *mut App;
+                if !ptr.is_null() {
+                    (&*ptr).send(Request::RoomDelete { room });
+                }
+            }
+        }
+        return 0;
     }
     if msg == crate::profile_ui::PICK {
         // The native picker runs a modal loop. Hold no App borrow across it.
@@ -1523,7 +1745,7 @@ unsafe extern "system" fn wndproc(h: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 if ((wp >> 16) as u16) == BN_CLICKED as u16
                     || ([INPUT_DEVICE, OUTPUT_DEVICE].contains(&((wp & 0xffff) as i32))
                         && ((wp >> 16) as u16) == CBN_SELCHANGE as u16)
-                    || ((wp & 0xffff) as i32 == CONVOS
+                    || ([CONVOS, ROOM_LIST].contains(&((wp & 0xffff) as i32))
                         && ((wp >> 16) as u16) == LBN_SELCHANGE as u16)
                 {
                     (&mut *ptr).command((wp & 0xffff) as i32, (wp >> 16) as u16);
@@ -1612,7 +1834,7 @@ pub fn run() -> anyhow::Result<()> {
         let hwnd = CreateWindowExW(
             0,
             class.as_ptr(),
-            w("Mini Voice").as_ptr(),
+            w("goyvoice").as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -1655,6 +1877,10 @@ pub fn run() -> anyhow::Result<()> {
             deaf: false,
             room: None,
             panel_open: false,
+            room_mode: false,
+            selected_room: None,
+            notified_messages: VecDeque::with_capacity(64),
+            last_message_sound: None,
             input_devices: vec![],
             output_devices: vec![],
             mixer_users: vec![],
@@ -1667,6 +1893,7 @@ pub fn run() -> anyhow::Result<()> {
             std::rc::Rc::as_ptr(&app.profile) as HANDLE,
         );
         app.profile.borrow_mut().enabled = app.settings.preferences.show_avatars;
+        app.profile.borrow_mut().bold_font = app.theme.bold_font;
         app.create();
         app.hotkey = RegisterHotKey(hwnd, INSERT_HOTKEY, MOD_NOREPEAT, VK_INSERT as u32) != 0;
         if !app.hotkey {

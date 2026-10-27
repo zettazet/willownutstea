@@ -29,7 +29,7 @@ pub fn record(message: &str) {
 }
 fn alert(message: &str) {
     let text: Vec<u16> = message.encode_utf16().chain(Some(0)).collect();
-    let title: Vec<u16> = "Mini Voice".encode_utf16().chain(Some(0)).collect();
+    let title: Vec<u16> = "goyvoice".encode_utf16().chain(Some(0)).collect();
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -42,7 +42,7 @@ fn alert(message: &str) {
 pub fn startup_error(error: &str) {
     record(&format!("startup error: {error}"));
     alert(&format!(
-        "Mini Voice could not start: {error}\n\nDiagnostic log: {}",
+        "goyvoice could not start: {error}\n\nDiagnostic log: {}",
         path().display()
     ));
 }
@@ -56,7 +56,7 @@ pub fn init() {
             std::backtrace::Backtrace::force_capture()
         ));
         alert(&format!(
-            "Mini Voice encountered an unexpected error and must close.\nDiagnostic log: {}",
+            "goyvoice encountered an unexpected error and must close.\nDiagnostic log: {}",
             path().display()
         ));
     }));

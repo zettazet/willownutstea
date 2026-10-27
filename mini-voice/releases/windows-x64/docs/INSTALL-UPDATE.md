@@ -1,15 +1,16 @@
 # Complete installation and update guide
 
-Mini Voice has two parts: **one Linux server on your Oracle VM**, and a
+goyvoice has two parts: **one Linux server on your Oracle VM**, and a
 **Windows 10/11 x64 client on each person's PC**. Friends install only the client.
 The Windows ZIP also contains `mini-server.exe`; the Oracle VM uses the Linux
 binary selected automatically by the installer.
 
-For the warm UI / Insert shortcut / RNNoise / 40px avatar update, an existing avatar-capable server
-needs no update: follow **C–E**. When upgrading a server from before avatar
-support, follow **A**, then **C–E**. Follow **B** only for a
-fresh server installation. All examples require replacing the domain, email, IP
-and SSH-key path with your own values.
+**For persistent rooms, update the server first (A), then the Windows clients
+(C–E).** Existing configs default to room creator `judas` and creation PIN
+`231939`; no config edit is required. See [ROOMS.md](ROOMS.md) for creation,
+live occupancy counts and deletion. A server from before avatar support also
+needs section A. Follow B only for a fresh installation. Replace domain, email,
+IP and SSH-key examples with your own values.
 
 ## A. Update your existing Oracle server
 
@@ -210,7 +211,7 @@ with C. See [HOSTING.md](HOSTING.md) for detailed Oracle networking instructions
 Use Windows **10/11 x64**. Rust, Node.js, Python and an Oracle account are not
 needed on friends' PCs.
 
-- [Download mini-client.exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/mini-client.exe)
+- [Download goyvoice.exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/goyvoice.exe)
 - [Download the complete Windows ZIP](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/mini-voice-windows-x64.zip)
 
 For an update:
@@ -224,7 +225,7 @@ For an update:
    `%USERPROFILE%\Apps\MiniVoice`. Replace the old package only after it exits.
    Keep its license files/notices when redistributing it. Do not run inside the
    ZIP preview. If using the standalone EXE, replace the old EXE after exiting.
-5. Run `mini-client.exe`. The Oracle VM does not use the ZIP's Windows server.
+5. Run `goyvoice.exe`. The Oracle VM does not use the ZIP's Windows server.
 
 Existing local settings are in:
 
@@ -246,10 +247,10 @@ $zipPath = "$env:TEMP\mini-voice-windows-x64.zip"
 New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
 Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/mini-voice-windows-x64.zip" -OutFile $zipPath
 Expand-Archive -LiteralPath $zipPath -DestinationPath $clientDir -Force
-Start-Process -FilePath "$clientDir\mini-client.exe"
+Start-Process -FilePath "$clientDir\goyvoice.exe"
 ```
 
-You can verify `mini-client.exe` and `mini-server.exe` with `Get-FileHash
+You can verify `goyvoice.exe` and `mini-server.exe` with `Get-FileHash
 -Algorithm SHA256` against the package's `BINARY-SHA256SUMS.txt`. The ZIP's hash is
 published alongside it as `mini-voice-windows-x64.zip.sha256` in the repository.
 These are unsigned builds; review any Windows security prompt before running.

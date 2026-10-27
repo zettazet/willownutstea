@@ -11,7 +11,7 @@ root = Path(__file__).resolve().parents[1]
 output = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'dist/THIRD-PARTY-NOTICES.txt'
 cache = Path(os.environ.get('CARGO_HOME', str(Path.home() / '.cargo'))) / 'registry/src'
 lock = tomllib.loads((root / 'Cargo.lock').read_text())
-chunks = ['Third-party source license notices for Mini Voice.\n'
+chunks = ['Third-party source license notices for goyvoice.\n'
           'This conservative inventory includes downloaded build/test dependencies.\n'
           'Platform system DLLs are supplied by Windows. SQLite is public domain.\n']
 missing = []

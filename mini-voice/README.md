@@ -1,4 +1,8 @@
-# Mini Voice
+# goyvoice
+
+**New: persistent rooms. Update the server and client.** Sign in as `judas`,
+open Rooms, enter a name and creation PIN `231939`. Friends can join; the list
+shows live occupancy. [Room setup and update guide](docs/ROOMS.md).
 
 Мінімальний клієнт Windows 10/11 x64 та власний сервер повідомлень і голосу.
 Без Electron, браузера, Docker чи hosted application platform. Друзям не потрібні
@@ -23,7 +27,7 @@ sudo apt-get update
 sudo apt-get install -y git ca-certificates
 git clone --branch main --single-branch https://github.com/zettazet/willownutstea.git
 cd willownutstea
-# Додати правила лише для Mini Voice у брандмауері VM; існуючий SSH не видаляється.
+# Додати правила лише для goyvoice у брандмауері VM; існуючий SSH не видаляється.
 sudo bash mini-voice/deploy/oracle/open-firewall.sh --apply
 sudo bash mini-voice/deploy/oracle/install.sh \
   --domain voice.example.org --email you@example.org
@@ -47,10 +51,10 @@ bash mini-voice/deploy/oracle/install.sh \
 
 ## Windows-клієнт
 
-[Завантажити mini-client.exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/mini-client.exe) ·
+[Завантажити goyvoice.exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/goyvoice.exe) ·
 [повний портативний ZIP](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/mini-voice-windows-x64.zip)
 
-1. Розпакуй ZIP та відкрий `mini-client.exe`.
+1. Розпакуй ZIP та відкрий `goyvoice.exe`.
 2. Введи `wss://твій-домен:4433`, username та пароль → **Register**.
    Username: 3–24 ASCII літери/цифри/`_`; пароль: 10–128 UTF-8 байтів.
 3. Username друга → **Add friend**; друг приймає **Accept friend**.
@@ -136,7 +140,7 @@ Windows GUI/фізичне аудіо та цілі <50 MiB idle / <100 MiB у �
 Background/Open, стан підключення та активний дзвінок/вимкнений мікрофон.
 Іконка може бути у прихованих значках під стрілкою біля годинника.
 
-Клік на іконку відкриває вікно. Права кнопка → Open Mini Voice або
+Клік на іконку відкриває вікно. Права кнопка → Open goyvoice або
 Exit (end calls). Кнопка Exit app у вікні також повністю завершує клієнт.
 Якщо трей недоступний, вікно залишається доступним через панель завдань.
 Режим у фоні не означає автозапуск після перезавантаження Windows і не працює,

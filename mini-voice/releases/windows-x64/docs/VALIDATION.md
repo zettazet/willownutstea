@@ -246,3 +246,37 @@ selection on Windows. The known Wine DPAPI limitation above still applies.
 
 Server, call protocol, persistent database and server release binaries are
 unchanged. Existing avatar-capable servers need only updated clients.
+
+## goyvoice persistent rooms / message notification update
+
+The workspace now has **24 passing Linux Rust tests**. New database tests cover
+creation restricted to the configured account plus PIN, creation rate limiting,
+invalid/duplicate names, accepted-friend visibility and joins, strangers denied,
+owner offline, empty-room persistence across database reopen, eight-person
+capacity, mute/labels, owner-only deletion and deletion while occupied. The real
+TLS network test also checks creator authorization, live occupancy changes,
+room voice delivery using the existing transport, rejected friend deletion and
+removal broadcast to participants. It passed against the distributed Linux x64
+server and the ARM64 server under QEMU. Existing UDP/replay/reconnect, avatars,
+message/history and shutdown tests remain included.
+
+Windows smoke under Wine passed with the new title, room/chats list toggle,
+creation disabled before authentication, settings migration/restoration, TLS
+startup, global Insert ownership, tray behavior and exit. The Windows package
+provides goyvoice.exe plus the byte-identical mini-client.exe compatibility copy.
+Windows file metadata, tray and dialogs use goyvoice; settings and service paths
+remain unchanged. Native controls v6 are requested through an embedded manifest
+for input cue banners; the executable runs without administrator privileges.
+
+The room pane was visually inspected under Wine/Xvfb. Names use one shared bold
+font and eight distinct palette entries, including the avatar-disabled layout.
+The new message WAV is original embedded PCM (180ms), gated by Soft sounds and
+deafen. A bounded 64-ID cache and 300ms coalescing prevent repeated/burst cues;
+no notification worker, polling timer or unbounded sound queue was added.
+Persistent rooms are capped at 32 metadata records and allocate no per-empty-room
+voice codecs/threads. Server-wide room/call records remain capped at 128.
+
+Six Oracle deployment tests, guide Bash syntax, Linux and Windows Clippy with
+warnings denied, formatting and release checksums were checked. Physical audio,
+Windows display scaling/accessibility and total native RAM/CPU still require
+a Windows machine. The Oracle VM itself was not accessed or updated here.

@@ -1,11 +1,15 @@
-# Mini Voice
+# goyvoice
+
+**New: persistent rooms. Update the server and client.** Sign in as `judas`,
+open Rooms, enter a name and creation PIN `231939`. Friends can join; the list
+shows live occupancy. [Room setup and update guide](mini-voice/docs/ROOMS.md).
 
 **[Complete installation and update guide →](mini-voice/docs/INSTALL-UPDATE.md)**
 
 Нативний Windows-застосунок для повідомлень і голосових дзвінків до 8 учасників.
 Сервер — один Rust-процес із SQLite, TLS та зашифрованим UDP; браузер не потрібен.
 
-- [Windows-клієнт .exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/mini-client.exe)
+- [Windows-клієнт .exe](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/windows-x64/goyvoice.exe)
 - [Повний Windows ZIP](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/mini-voice-windows-x64.zip)
 - [Linux x86_64 сервер](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/linux-x64/mini-server)
 - [Linux ARM64 сервер для Ampere](https://raw.githubusercontent.com/zettazet/willownutstea/main/mini-voice/releases/linux-arm64/mini-server)

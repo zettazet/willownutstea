@@ -1,3 +1,7 @@
+> Latest update: persistent rooms require a server update as well as a new client.
+> See [ROOMS.md](ROOMS.md). The older client-only notes below apply to their
+> individual audio/theme updates. The app is now called goyvoice.
+
 # Audio, profiles and message input
 
 This is an extension of the existing Win32/CPAL/Opus client and SQLite/TLS
@@ -107,7 +111,7 @@ claimed from a Linux/Wine build environment.
 
 ## Voice cleanup and square avatars
 
-The cocoa/peach UI uses native Win32 controls, one shared Segoe UI font and
+The cocoa/peach UI uses native Win32 controls, shared Segoe UI body and bold fonts and
 GDI-painted rounded buttons. There is no web renderer, animation timer or image
 background. Section headings separate friends, conversations and the message area.
 
@@ -115,7 +119,7 @@ background. Section headings separate friends, conversations and the message are
 tray or while another app has focus. Holding the key does not repeatedly toggle.
 The shortcut is global while this client runs. If another application owns Insert,
 a status message explains the conflict; the mic button and an in-window Insert
-fallback remain available. Outside calls the key does nothing in Mini Voice.
+fallback remain available. Outside calls the key does nothing in goyvoice.
 
 **Soft sounds** (Audio / Profile, ON by default) plays the same quiet 220ms chime
 when you join/leave a call, a participant joins/leaves your current call, or the

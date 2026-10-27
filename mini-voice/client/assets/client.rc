@@ -1,2 +1,26 @@
 // Keep the resource ID in sync with LoadIconW in src/gui.rs.
 1 ICON "client.ico"
+1 24 "client.manifest"
+
+1 VERSIONINFO
+FILEVERSION 0,1,0,0
+PRODUCTVERSION 0,1,0,0
+FILEOS 0x40004
+FILETYPE 1
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "FileDescription", "goyvoice\0"
+      VALUE "ProductName", "goyvoice\0"
+      VALUE "OriginalFilename", "goyvoice.exe\0"
+      VALUE "FileVersion", "0.1.0\0"
+      VALUE "ProductVersion", "0.1.0\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x0409, 1200
+  END
+END

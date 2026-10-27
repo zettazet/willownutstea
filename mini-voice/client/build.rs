@@ -3,6 +3,7 @@ use std::{env, path::PathBuf, process::Command};
 fn main() {
     println!("cargo:rerun-if-changed=assets/client.ico");
     println!("cargo:rerun-if-changed=assets/client.rc");
+    println!("cargo:rerun-if-changed=assets/client.manifest");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
         return;
     }

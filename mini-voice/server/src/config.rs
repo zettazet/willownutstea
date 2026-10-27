@@ -10,6 +10,10 @@ pub struct Config {
     pub database: String,
     pub tls_cert: String,
     pub tls_key: String,
+    #[serde(default = "mini_server::default_room_creator")]
+    pub room_creator_username: String,
+    #[serde(default = "mini_server::default_room_password_hash")]
+    pub room_creation_password_hash: String,
 }
 pub enum Action {
     Run(String),
@@ -42,6 +46,18 @@ impl Config {
             .with_context(|| format!("Cannot read server configuration {path}"))?;
         let config: Self =
             serde_json::from_slice(&data).context("Invalid JSON server configuration")?;
+        ensure!(
+            mini_shared::valid_username(&config.room_creator_username),
+            "room_creator_username must be a valid account username"
+        );
+        ensure!(
+            config.room_creation_password_hash.len() == 64
+                && config
+                    .room_creation_password_hash
+                    .bytes()
+                    .all(|c| c.is_ascii_hexdigit()),
+            "room_creation_password_hash must be a SHA-256 hex digest"
+        );
         config
             .listen
             .parse::<SocketAddr>()

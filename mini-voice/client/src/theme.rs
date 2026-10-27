@@ -10,11 +10,28 @@ pub const ACCENT: u32 = 0x008eb4df;
 pub const INK: u32 = 0x00212c37;
 pub struct Theme {
     pub font: HFONT,
+    pub bold_font: HFONT,
 }
 impl Theme {
     pub unsafe fn new() -> Self {
         let face: Vec<u16> = "Segoe UI".encode_utf16().chain(Some(0)).collect();
         Self {
+            bold_font: CreateFontW(
+                -15,
+                0,
+                0,
+                0,
+                700,
+                0,
+                0,
+                0,
+                DEFAULT_CHARSET as u32,
+                OUT_DEFAULT_PRECIS as u32,
+                CLIP_DEFAULT_PRECIS as u32,
+                CLEARTYPE_QUALITY as u32,
+                DEFAULT_PITCH as u32,
+                face.as_ptr(),
+            ),
             font: CreateFontW(
                 -15,
                 0,
@@ -37,6 +54,9 @@ impl Theme {
 impl Drop for Theme {
     fn drop(&mut self) {
         unsafe {
+            if !self.bold_font.is_null() {
+                DeleteObject(self.bold_font);
+            }
             if !self.font.is_null() {
                 DeleteObject(self.font);
             }

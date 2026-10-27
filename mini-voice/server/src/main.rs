@@ -58,10 +58,10 @@ async fn shutdown_signal() -> Result<()> {
 async fn run(c: Config, tls: tokio_rustls::rustls::ServerConfig) -> Result<()> {
     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
     let udp = Arc::new(UdpSocket::bind(&c.udp_listen).await?);
-    let state = Arc::new(Mutex::new(Server::open(
-        &c.database,
-        udp.local_addr()?.port(),
-    )?));
+    let mut server = Server::open(&c.database, udp.local_addr()?.port())?;
+    server.room_creator_username = c.room_creator_username.clone();
+    server.room_creation_password_hash = c.room_creation_password_hash.to_ascii_lowercase();
+    let state = Arc::new(Mutex::new(server));
     {
         let s = state.clone();
         let udp = udp.clone();

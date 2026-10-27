@@ -1,4 +1,5 @@
 mod avatars;
+mod persistent_rooms;
 use anyhow::{bail, ensure, Result};
 use argon2::{
     password_hash::{PasswordHash, SaltString},
@@ -6,6 +7,7 @@ use argon2::{
 };
 pub use avatars::optimize as optimize_avatar;
 use mini_shared::*;
+pub use persistent_rooms::{default_room_creator, default_room_password_hash};
 use rand::{rngs::OsRng, RngCore};
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
@@ -58,6 +60,7 @@ pub struct Peer {
     pub voice_count: u32,
     pub udp_enabled: bool,
     pub avatar_epoch: u64,
+    pub room_attempt_after: u64,
     pub overloaded: std::sync::atomic::AtomicBool,
 }
 pub struct Server {
@@ -67,6 +70,9 @@ pub struct Server {
     pub udp_port: u16,
     rejoin: HashMap<i64, (u64, u64)>,
     uploads: HashMap<i64, avatars::Upload>,
+    persistent: HashMap<u64, persistent_rooms::StoredRoom>,
+    pub room_creator_username: String,
+    pub room_creation_password_hash: String,
 }
 pub enum AuthWork {
     Register(String, String),
@@ -116,14 +122,20 @@ impl Server {
  CREATE INDEX IF NOT EXISTS message_page ON messages(conversation,id);
  CREATE TABLE IF NOT EXISTS avatars(user INTEGER PRIMARY KEY REFERENCES users(id), revision TEXT NOT NULL, data BLOB NOT NULL);
  CREATE INDEX IF NOT EXISTS user_members ON members(user,conversation);")?;
-        Ok(Self {
+        db.execute_batch("CREATE TABLE IF NOT EXISTS voice_rooms(id INTEGER PRIMARY KEY,owner INTEGER NOT NULL REFERENCES users(id),name TEXT NOT NULL COLLATE NOCASE,UNIQUE(owner,name));")?;
+        let mut server = Self {
             db,
             peers: HashMap::new(),
             rooms: HashMap::new(),
             udp_port,
             rejoin: HashMap::new(),
             uploads: HashMap::new(),
-        })
+            persistent: HashMap::new(),
+            room_creator_username: default_room_creator(),
+            room_creation_password_hash: default_room_password_hash(),
+        };
+        server.load_voice_rooms()?;
+        Ok(server)
     }
     pub fn user(&self, id: i64) -> Result<User> {
         Ok(self
@@ -248,6 +260,7 @@ impl Server {
                 voice_count: 0,
                 udp_enabled: false,
                 avatar_epoch: 0,
+                room_attempt_after: 0,
                 overloaded: std::sync::atomic::AtomicBool::new(false),
             },
         );
@@ -333,6 +346,11 @@ impl Server {
             incoming,
             conversations,
             calls,
+            voice_rooms: self.visible_voice_rooms(id)?,
+            can_create_rooms: self
+                .user(id)?
+                .username
+                .eq_ignore_ascii_case(&self.room_creator_username),
         })
     }
     pub fn refresh(&self) {
@@ -359,11 +377,12 @@ impl Server {
     }
     pub fn leave(&mut self, id: i64) {
         self.rejoin.remove(&id);
-        self.rooms.retain(|_, r| {
+        let persistent = &self.persistent;
+        self.rooms.retain(|room_id, r| {
             r.members.remove(&id);
             r.invited.remove(&id);
             r.toggles.remove(&id);
-            !r.members.is_empty()
+            !r.members.is_empty() || persistent.contains_key(room_id)
         });
     }
     pub fn disconnect(&mut self, id: i64, g: [u8; 16]) {
@@ -381,7 +400,8 @@ impl Server {
                     }
                 }
             }
-            self.rooms.retain(|_, r| !r.members.is_empty());
+            self.rooms
+                .retain(|id, r| !r.members.is_empty() || self.persistent.contains_key(id));
             self.refresh();
         }
     }
@@ -599,6 +619,8 @@ impl Server {
                 self.emit(u, Event::Ack { nonce, id });
                 return Ok(());
             }
+            Request::RoomCreate { name, password } => self.create_voice_room(u, name, password)?,
+            Request::RoomDelete { room } => self.delete_voice_room(u, room)?,
             Request::Call { conversation } => {
                 ensure!(
                     self.authorized(u, conversation),
@@ -613,7 +635,7 @@ impl Server {
                     "Call already exists; accept its invitation"
                 );
                 ensure!(self.rooms.len() < 128, "Server call limit reached");
-                let id = u64::from_be_bytes(random::<8>()) >> 1;
+                let id = self.unused_call_id();
                 let users=self.users_query("SELECT id,username,(SELECT revision FROM avatars WHERE user=users.id) FROM users WHERE id IN (SELECT user FROM members WHERE conversation=?)",conversation)?;
                 self.rooms.insert(
                     id,
@@ -638,6 +660,10 @@ impl Server {
             }
             Request::Invite { call, user } => {
                 ensure!(
+                    !self.persistent.contains_key(&call),
+                    "Friends of the room owner join rooms directly"
+                );
+                ensure!(
                     self.rooms
                         .get(&call)
                         .is_some_and(|r| r.members.contains_key(&u)),
@@ -656,11 +682,15 @@ impl Server {
                     !self.rooms.values().any(|r| r.members.contains_key(&u)),
                     "Already in a call"
                 );
+                let persistent = self.persistent.contains_key(&call);
+                if persistent {
+                    ensure!(self.can_join_voice_room(u, call), "Room access denied");
+                }
                 let r = self
                     .rooms
                     .get_mut(&call)
                     .ok_or_else(|| anyhow::anyhow!("Call ended"))?;
-                ensure!(r.invited.contains(&u), "Not invited");
+                ensure!(persistent || r.invited.contains(&u), "Not invited");
                 ensure!(r.members.len() < MAX_CALL, "Call full");
                 r.invited.remove(&u);
                 self.rejoin.remove(&u);
