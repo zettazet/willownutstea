@@ -1,0 +1,24 @@
+[package]
+name = "mini-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[dependencies]
+mini-shared = { path = "../shared" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+rand.workspace = true
+sha2.workspace = true
+hex.workspace = true
+anyhow.workspace = true
+rusqlite = { version = "0.37", features = ["bundled"] }
+argon2 = "0.5"
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
+[dev-dependencies]
+tempfile = "3"
+rcgen = "0.14"
+mini-client = { path = "../client" }
