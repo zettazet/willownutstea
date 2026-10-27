@@ -1,0 +1,8 @@
+/target/
+/dist/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+server.json
+*.pem
+benchmarks*.csv

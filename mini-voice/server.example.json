@@ -1,0 +1,7 @@
+{
+  "listen": "0.0.0.0:4433",
+  "udp_listen": "0.0.0.0:4434",
+  "database": "mini-voice.sqlite",
+  "tls_cert": "fullchain.pem",
+  "tls_key": "privkey.pem"
+}
