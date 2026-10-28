@@ -280,3 +280,22 @@ Six Oracle deployment tests, guide Bash syntax, Linux and Windows Clippy with
 warnings denied, formatting and release checksums were checked. Physical audio,
 Windows display scaling/accessibility and total native RAM/CPU still require
 a Windows machine. The Oracle VM itself was not accessed or updated here.
+
+## Always-visible rooms sidebar update
+
+Client-only layout update: Friends, compact Chats and Voice Rooms are displayed
+together. Rooms retain their live count and join/delete controls. The existing
+creation fields are collapsed behind + New for the authorized creator; Cancel
+clears the PIN. Shared bold fonts mark the sections, the toolbar explains Enter/
+Shift+Enter, the settings button indicates its open state, and selecting a room
+shows its full name/count/owner in the status line. Authentication, room policy,
+voice, messages and the server/protocol are unchanged.
+
+Windows executable smoke under Wine checks simultaneous chat/room visibility,
+the collapsed unauthorized creation form, non-overlapping lists and room controls
+inside the minimum supported viewport, settings persistence, TLS startup and
+tray behavior. Windows Clippy and formatting are checked. No new renderer, timer,
+thread, per-room audio state or image buffer was added; two small static labels
+(room heading and shortcut hint) were added; other controls/fonts are reused. Native Windows total
+RAM/DPI/accessibility measurement remains unverified. No new server binary is
+needed for an installation already supporting persistent rooms.

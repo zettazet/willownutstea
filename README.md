@@ -1,7 +1,9 @@
 # goyvoice
 
-**New: persistent rooms. Update the server and client.** Sign in as `judas`,
-open Rooms, enter a name and creation PIN `231939`. Friends can join; the list
+Latest client: compact Chats and Voice Rooms are always visible together. No server update is needed if rooms already work.
+
+**Persistent rooms:** first-time setup requires server and client updates. Sign in as `judas`,
+click **+ New** beside Voice Rooms, enter a name and creation PIN `231939`. Friends can join; the list
 shows live occupancy. [Room setup and update guide](mini-voice/docs/ROOMS.md).
 
 **[Complete installation and update guide →](mini-voice/docs/INSTALL-UPDATE.md)**

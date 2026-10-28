@@ -77,21 +77,67 @@ fn saved_endpoint_startup_background_restore_and_exit() {
         let mut title = [0u16; 128];
         let len = GetWindowTextW(search.window, title.as_mut_ptr(), 128);
         assert!(String::from_utf16_lossy(&title[..len as usize]).contains("goyvoice"));
-        assert!(!GetDlgItem(search.window, 200).is_null());
-        PostMessageW(search.window, WM_COMMAND, 200, 0);
-    }
-    wait_until(|| unsafe { IsWindowVisible(GetDlgItem(search.window, 201)) } != 0);
-    unsafe {
+        assert_ne!(
+            IsWindowVisible(GetDlgItem(search.window, 115)),
+            0,
+            "chats must stay visible"
+        );
+        assert_ne!(
+            IsWindowVisible(GetDlgItem(search.window, 201)),
+            0,
+            "rooms must stay visible"
+        );
         assert_eq!(
-            windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(GetDlgItem(
-                search.window,
-                204
-            )),
-            0
+            IsWindowVisible(GetDlgItem(search.window, 202)),
+            0,
+            "creation form starts collapsed"
         );
         PostMessageW(search.window, WM_COMMAND, 200, 0);
     }
-    wait_until(|| unsafe { IsWindowVisible(GetDlgItem(search.window, 201)) } == 0);
+    // A hidden creation button cannot hide either list or open a form while signed out.
+    unsafe {
+        SendMessageW(search.window, WM_NULL, 0, 0);
+    }
+    assert_ne!(
+        unsafe { IsWindowVisible(GetDlgItem(search.window, 115)) },
+        0
+    );
+    assert_ne!(
+        unsafe { IsWindowVisible(GetDlgItem(search.window, 201)) },
+        0
+    );
+    assert_eq!(
+        unsafe { IsWindowVisible(GetDlgItem(search.window, 202)) },
+        0
+    );
+    // At the minimum supported window size the lists must fit and not overlap.
+    unsafe {
+        SetWindowPos(
+            search.window,
+            std::ptr::null_mut(),
+            0,
+            0,
+            940,
+            800,
+            SWP_NOMOVE | SWP_NOZORDER,
+        );
+    }
+    wait_until(|| unsafe {
+        let mut client = std::mem::zeroed();
+        GetClientRect(search.window, &mut client);
+        let mut chats: RECT = std::mem::zeroed();
+        let mut rooms: RECT = std::mem::zeroed();
+        let mut join: RECT = std::mem::zeroed();
+        GetWindowRect(GetDlgItem(search.window, 115), &mut chats);
+        GetWindowRect(GetDlgItem(search.window, 201), &mut rooms);
+        GetWindowRect(GetDlgItem(search.window, 205), &mut join);
+        let mut origin = POINT { x: 0, y: 0 };
+        windows_sys::Win32::Graphics::Gdi::ClientToScreen(search.window, &mut origin);
+        chats.bottom < rooms.top
+            && rooms.bottom <= join.top
+            && rooms.bottom - rooms.top >= 60
+            && join.bottom <= origin.y + client.bottom
+    });
     let mut socket = None;
     wait_until(|| {
         socket = listener.accept().ok().map(|s| s.0);

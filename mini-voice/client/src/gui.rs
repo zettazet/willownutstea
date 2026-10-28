@@ -112,7 +112,7 @@ struct App {
     deaf: bool,
     room: Option<u64>,
     panel_open: bool,
-    room_mode: bool,
+    room_form_open: bool,
     selected_room: Option<u64>,
     notified_messages: VecDeque<i64>,
     last_message_sound: Option<std::time::Instant>,
@@ -154,6 +154,8 @@ impl App {
         self.messages.clear();
         self.notified_messages.clear();
         self.selected_room = None;
+        self.room_form_open = false;
+        set(self.control(ROOM_PASSWORD), "");
         SendMessageW(self.control(ROOM_LIST), LB_RESETCONTENT, 0, 0);
         self.pending.clear();
         self.failed.clear();
@@ -297,7 +299,7 @@ impl App {
         );
         make("BUTTON", "Audio / Profile", PANEL, WS_TABSTOP);
         for (id, label) in [
-            (ROOM_MODE, "Chats / show rooms"),
+            (ROOM_MODE, "+ New"),
             (ROOM_CREATE, "Create room"),
             (ROOM_JOIN, "Join room"),
             (ROOM_DELETE, "Delete room"),
@@ -337,8 +339,25 @@ impl App {
             w("Room creation password").as_ptr() as isize,
         );
         make("STATIC", "FRIENDS / REQUESTS", 190, 0);
-        make("STATIC", "CONVERSATIONS", 191, 0);
+        make("STATIC", "CHATS", 191, 0);
+        make("STATIC", "VOICE ROOMS", 193, 0);
+        for id in [190, 191, 193] {
+            if !self.theme.bold_font.is_null() {
+                SendMessageW(
+                    self.control(id),
+                    WM_SETFONT,
+                    self.theme.bold_font as usize,
+                    1,
+                );
+            }
+        }
         make("STATIC", "goyvoice  /  a place to talk", 192, 0);
+        make(
+            "STATIC",
+            "Enter sends a message\r\nShift+Enter adds a line",
+            195,
+            0,
+        );
         for id in [INPUT_DEVICE, OUTPUT_DEVICE] {
             make(
                 "COMBOBOX",
@@ -493,51 +512,47 @@ impl App {
         pos(NAME, left, 130, side, 30);
         pos(ADD, left, 168, 104, 30);
         pos(ACCEPT, 128, 168, 104, 30);
-        let friends_height = ((height - 280) * 45 / 100).max(120);
+        // All three lists remain on screen. Extra height primarily goes to rooms.
+        let extra = (height - 740).max(0);
+        let friends_height = (100 + extra / 4).min(152);
         pos(FRIENDS, left, 208, side, friends_height);
-        let sidebar_y = 218 + friends_height;
-        pos(CHAT, left, sidebar_y, 104, 30);
-        pos(INVITE, 128, sidebar_y, 104, 30);
-        ShowWindow(self.control(191), SW_HIDE);
-        pos(ROOM_MODE, left, sidebar_y + 40, side, 28);
-        set(
-            self.control(ROOM_MODE),
-            if self.room_mode {
-                "Rooms / show chats"
-            } else {
-                "Chats / show rooms"
-            },
-        );
-        let list_y = sidebar_y + 78;
-        let list_height = (height - list_y - 16).max(80);
-        pos(CONVOS, left, list_y, side, list_height);
-        let room_list_height = (list_height - 144).max(60);
-        pos(ROOM_LIST, left, list_y, side, room_list_height);
-        let fields_y = list_y + room_list_height + 8;
+        let friends_actions = 218 + friends_height;
+        pos(CHAT, left, friends_actions, 104, 30);
+        pos(INVITE, 128, friends_actions, 104, 30);
+        let chats_heading = friends_actions + 42;
+        pos(191, left, chats_heading, side, 22);
+        let chats_y = chats_heading + 28;
+        let chats_height = (88 + extra / 6).min(128);
+        pos(CONVOS, left, chats_y, side, chats_height);
+        let rooms_heading = chats_y + chats_height + 12;
+        pos(193, left, rooms_heading, 130, 22);
+        pos(ROOM_MODE, 156, rooms_heading - 3, 76, 28);
+        let creator = self.state.as_ref().is_some_and(|s| s.can_create_rooms);
+        let form_open = creator && self.room_form_open;
+        let room_list_y = rooms_heading + 30;
+        let room_actions_y = height - 48;
+        let form_height = if form_open { 102 } else { 0 };
+        let room_list_height = (room_actions_y - 8 - form_height - room_list_y).max(60);
+        pos(ROOM_LIST, left, room_list_y, side, room_list_height);
+        let fields_y = room_list_y + room_list_height + 8;
         pos(ROOM_NAME, left, fields_y, side, 28);
         pos(ROOM_PASSWORD, left, fields_y + 34, side, 28);
         pos(ROOM_CREATE, left, fields_y + 68, side, 28);
-        pos(ROOM_JOIN, left, fields_y + 102, 104, 28);
-        pos(ROOM_DELETE, 128, fields_y + 102, 104, 28);
-        ShowWindow(
-            self.control(CONVOS),
-            if self.room_mode { SW_HIDE } else { SW_SHOW },
+        pos(ROOM_JOIN, left, room_actions_y, 104, 30);
+        pos(ROOM_DELETE, 128, room_actions_y, 104, 30);
+        set(
+            self.control(ROOM_MODE),
+            if form_open { "Cancel" } else { "+ New" },
         );
-        for id in [
-            ROOM_LIST,
-            ROOM_NAME,
-            ROOM_PASSWORD,
-            ROOM_CREATE,
-            ROOM_JOIN,
-            ROOM_DELETE,
-        ] {
-            ShowWindow(
-                self.control(id),
-                if self.room_mode { SW_SHOW } else { SW_HIDE },
-            );
+        ShowWindow(
+            self.control(ROOM_MODE),
+            if creator { SW_SHOW } else { SW_HIDE },
+        );
+        for id in [191, 193, CONVOS, ROOM_LIST, ROOM_JOIN, ROOM_DELETE] {
+            ShowWindow(self.control(id), SW_SHOW);
         }
-        let creator = self.state.as_ref().is_some_and(|s| s.can_create_rooms);
-        for id in [ROOM_CREATE, ROOM_NAME, ROOM_PASSWORD] {
+        for id in [ROOM_NAME, ROOM_PASSWORD, ROOM_CREATE] {
+            ShowWindow(self.control(id), if form_open { SW_SHOW } else { SW_HIDE });
             EnableWindow(self.control(id), creator as i32);
         }
         let own_room = self
@@ -558,6 +573,15 @@ impl App {
         pos(CALL, main + 140, 102, 82, 32);
         pos(JOIN, main + 230, 102, 108, 32);
         pos(DECLINE, main + 346, 102, 86, 32);
+        pos(195, main + 444, 102, content - 444, 38);
+        set(
+            self.control(PANEL),
+            if self.panel_open {
+                "Close settings"
+            } else {
+                "Audio / Profile"
+            },
+        );
         let controls_y = height - 50;
         let call_height = if self.room.is_some() {
             if self.settings.preferences.show_avatars {
@@ -977,8 +1001,16 @@ impl App {
         }
         match id {
             ROOM_MODE => {
-                self.room_mode = !self.room_mode;
-                self.layout();
+                if self.state.as_ref().is_some_and(|s| s.can_create_rooms) {
+                    self.room_form_open = !self.room_form_open;
+                    if !self.room_form_open {
+                        set(self.control(ROOM_PASSWORD), "");
+                    }
+                    self.layout();
+                    if self.room_form_open {
+                        SetFocus(self.control(ROOM_NAME));
+                    }
+                }
             }
             ROOM_LIST if notification == LBN_SELCHANGE as u16 => {
                 let index = SendMessageW(self.control(ROOM_LIST), LB_GETCURSEL, 0, 0);
@@ -987,6 +1019,16 @@ impl App {
                     .as_ref()
                     .and_then(|s| s.voice_rooms.get(index as usize))
                     .map(|r| r.id);
+                if let Some(room) = self.state.as_ref().and_then(|s| {
+                    s.voice_rooms
+                        .iter()
+                        .find(|r| Some(r.id) == self.selected_room)
+                }) {
+                    self.status(&format!(
+                        "{} — {}/8 people — owner: {}",
+                        room.name, room.participants, room.owner.username
+                    ));
+                }
                 self.layout();
             }
             ROOM_CREATE => {
@@ -1404,6 +1446,8 @@ impl App {
                         SendMessageW(self.control(CONVOS), LB_RESETCONTENT, 0, 0);
                         SendMessageW(self.control(ROOM_LIST), LB_RESETCONTENT, 0, 0);
                         self.selected_room = None;
+                        self.room_form_open = false;
+                        set(self.control(ROOM_PASSWORD), "");
                         self.notified_messages.clear();
                         self.layout();
                     }
@@ -1877,7 +1921,7 @@ pub fn run() -> anyhow::Result<()> {
             deaf: false,
             room: None,
             panel_open: false,
-            room_mode: false,
+            room_form_open: false,
             selected_room: None,
             notified_messages: VecDeque::with_capacity(64),
             last_message_sound: None,

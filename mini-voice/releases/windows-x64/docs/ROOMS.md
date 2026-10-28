@@ -1,6 +1,10 @@
 # goyvoice: persistent rooms and this update
 
-**Update your server first, then every Windows client.** This version adds a
+**The latest sidebar layout is a client-only update:** if your server already
+supports rooms, replace only the Windows client. Chats and rooms now stay visible
+together, with + New opening the creation form for judas.
+
+**When installing rooms for the first time, update your server first, then every Windows client.** This version adds a
 SQLite `voice_rooms` table automatically without changing existing accounts,
 friends, chats or avatars. The installation/service/config paths remain
 `mini-voice` for compatibility. Back up your database before updating.
@@ -21,7 +25,8 @@ now say goyvoice. No new app renderer or audio threads were added.
 ## Create and use a room
 
 1. Sign in as **judas**, the configured creator account.
-2. Click **Chats / show rooms** in the left sidebar.
+2. **Voice Rooms** is always visible below the compact Chats list. As judas,
+   click **+ New** beside its heading to open the creation form.
 3. Enter a room name (1–48 characters) and creation password **231939**.
 4. Click **Create room**. The password field clears and is not saved locally.
    Creating a room does not automatically join it or turn on your microphone.
@@ -35,6 +40,10 @@ now say goyvoice. No new app renderer or audio threads were added.
    room permanently and ends participation for everyone inside it.
 
 Room entries show **`[2/8 LIVE] Lounge — judas`** or **`[0/8 empty] Lounge — judas`**.
+Chats and rooms remain visible together. **Cancel** collapses the creation form
+and clears its password; joining/deleting stays below the room list. Select a
+room to see its full name, owner and count in the status line.
+
 Counts update from server snapshots as people join, leave, log out or disconnect.
 The count is at the beginning so long room names do not hide it. An abruptly
 lost connection may remain counted until the server detects its timeout.

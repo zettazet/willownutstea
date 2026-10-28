@@ -5,7 +5,10 @@ goyvoice has two parts: **one Linux server on your Oracle VM**, and a
 The Windows ZIP also contains `mini-server.exe`; the Oracle VM uses the Linux
 binary selected automatically by the installer.
 
-**For persistent rooms, update the server first (A), then the Windows clients
+**For the always-visible sidebar update, an existing room-capable server needs
+no update: follow C–E only.**
+
+**When adding persistent rooms for the first time, update the server first (A), then the Windows clients
 (C–E).** Existing configs default to room creator `judas` and creation PIN
 `231939`; no config edit is required. See [ROOMS.md](ROOMS.md) for creation,
 live occupancy counts and deletion. A server from before avatar support also
